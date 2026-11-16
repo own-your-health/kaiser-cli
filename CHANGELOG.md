@@ -7,6 +7,9 @@
   `/`. Reading references is medical-common's `ReferenceTarget` now, not
   kp's own parser.
 - On medical-common v0.4.5 (cli-common v0.31.1, as before).
+- PRIVACY.md: kp writes only to files on the member's computer; where the
+  program it pipes into (such as `medrec import`) keeps records is that
+  program's policy. It no longer calls that store encrypted.
 
 ## v0.1.2 — 2026-11-16
 

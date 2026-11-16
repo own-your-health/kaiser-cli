@@ -209,21 +209,30 @@ mod tests {
 
     #[test]
     fn an_absolute_reference_on_this_base_is_read_in_any_host_case() {
-        // BASE with its scheme and host in capitals; the path keeps its case.
-        for reference in [
-            "HTTPS://FHIR.EXAMPLE.ORG/r4/Location/loc-0002",
-            "https://fhir.example.org/r4/Location/loc-0002",
-        ] {
-            assert_eq!(
-                parse_reference(reference, &format!("{BASE}/")),
-                Some(("Location".into(), "loc-0002".into())),
-                "{reference}"
-            );
+        // The scheme and host compare in any case, on the reference and on the
+        // base, and a trailing `/` on the base is ignored. The path keeps its
+        // case.
+        let lower = "https://fhir.example.org/r4";
+        let upper = "HTTPS://FHIR.EXAMPLE.ORG/r4";
+        for written in [lower, upper] {
+            for base in [lower, upper]
+                .map(String::from)
+                .into_iter()
+                .flat_map(|b| [format!("{b}/"), b])
+            {
+                assert_eq!(
+                    parse_reference(&format!("{written}/Location/loc-0002"), &base),
+                    Some(("Location".into(), "loc-0002".into())),
+                    "{written} on {base}"
+                );
+            }
         }
-        assert_eq!(
-            parse_reference(&format!("{BASE}x/Location/loc-0002"), BASE),
-            None
-        );
+        for other in [
+            "https://fhir.example.org/R4/Location/loc-0002",
+            "https://fhir.example.org/r4x/Location/loc-0002",
+        ] {
+            assert_eq!(parse_reference(other, lower), None, "{other}");
+        }
     }
 
     #[test]
