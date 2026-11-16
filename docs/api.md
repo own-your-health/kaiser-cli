@@ -29,8 +29,8 @@ member.
    If the household registers, `kp` implements `health-records/v1` over it so
    `medrec import --from kp` works unchanged. Without that registration,
    Kaiser clinical records and `Coverage` still arrive through `mychart`. EOBs
-   arrive too only if Kaiser's Epic serves them to a patient token and
-   `mychart` searches for them, which it does not yet
+   arrive too if Kaiser's Epic serves them to a patient token: `mychart`
+   v0.2.1 and later search for them, and a refused search is a skip
    ([Claims through Epic](#claims-through-epic)).
 
 Two questions stay open until `mychart` has a production client id. The first
@@ -215,7 +215,7 @@ mychart api GET "ExplanationOfBenefit?patient=$p&_count=50" --patient adult1 --j
 |---|---|
 | exit 3 "access to it was refused" (a 403, or no `ExplanationOfBenefit` in the token's scope), or exit 4 | Northwest serves no EOB through Epic: register at developer.kp.org for `kp` |
 | a `Bundle` with no `ExplanationOfBenefit` entries, for a member who has had care outside Kaiser | Northwest's claims are not in Epic: register for `kp` |
-| a `Bundle` with `ExplanationOfBenefit` entries | Epic serves Northwest's claims; they reach medrec once `mychart`'s export searches `ExplanationOfBenefit` (in progress in mychart-cli). Whether they are all of them (Kaiser's API covers dates of service from 2016-01-01) shows only beside `kp`'s count for the same member |
+| a `Bundle` with `ExplanationOfBenefit` entries | Epic serves Northwest's claims, and `mychart records export` (v0.2.1 or later, which searches `ExplanationOfBenefit` at every organization) brings them to medrec. Whether they are all of them (Kaiser's API covers dates of service from 2016-01-01) shows only beside `kp`'s count for the same member |
 
 Kaiser's claims are mostly for care outside Kaiser: "Kaiser Permanente in
 California currently processes referred care and emergency services claims
