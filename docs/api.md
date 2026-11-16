@@ -240,6 +240,7 @@ Guide" (August 2023, 23 pages) and the live CapabilityStatement.
 | `aud` | "Optional but must be a valid URL" |
 | `state` | Optional |
 | Resources | `ExplanationOfBenefit` (search by `patient`, `_lastUpdated`, `created`; `_include` of `patient`, `provider`, `*`), and reads of `Coverage`, `Location`, `Organization`, `Patient`, `Practitioner` by the ids an EOB references. The CapabilityStatement also lists `Encounter` and `MedicationDispense` |
+| Server | Smile CDR (`implementation.description` "FHIR Endpoint powered by Smile CDR"), not Epic. Its CapabilityStatement (read 2026-11-16) lists `patient` and `_lastUpdated` as search parameters of `ExplanationOfBenefit`, `Coverage`, `Encounter` and `MedicationDispense`, so Epic's limit of some types to `_id` searches does not apply; `Location`, `Organization`, `Patient` and `Practitioner` search only by `_id`, `identifier` and the like, and kp reads them by reference |
 | Data | Dates of service from 2016-01-01; claims are loaded as received or finalized |
 | Regions | All: Northern and Southern California, Colorado, Georgia, Hawaii, Mid-Atlantic States, Northwest, Washington |
 | Revocation | The member removes the app in kp.org: Profile and Preferences, Data sharing & authorization, Manage access to health plan information |
@@ -257,7 +258,7 @@ proxies and from members under 18.
 | Discovery | `GET [base]/metadata`, endpoints from `rest[0].security.extension` `oauth-uris` (`KaiserQuirks::metadata_first`; no `.well-known` request) | exit 5 |
 | Sign-in | authorize with PKCE S256, `aud` = the base, the scopes above; token request with the client id and secret as HTTP Basic | exit 3 |
 | Member | `GET Patient/<patient>` from the token response's `patient` | skip `Patient` |
-| Searches | `ExplanationOfBenefit`, `Coverage`, `Encounter`, `MedicationDispense`, each `?patient=<id>`, every page | skip the search: `forbidden` (403), `unsupported` (404), `upstream`, `page_cap` |
+| Searches | `ExplanationOfBenefit`, `Coverage`, `Encounter`, `MedicationDispense`, each `?patient=<id>`, every page | skip the search: `forbidden` (403), `unsupported` (404), `upstream`, `page_cap`; an answer whose `OperationOutcome` has an issue coded `suppressed` keeps its results, and the trailer has one `forbidden` skip per type and distinct line (`SearchResult::withheld`), with `resource_type` and no `search` or `id` |
 | `--since D` | `&_lastUpdated=geD` on each search; the member's `Patient` and every referenced read come whole (`since_unbounded`) | as above |
 | References | a read of each `Coverage`, `Location`, `Organization`, `Patient`, `Practitioner` the results name, relative or absolute on the base (scheme and host in any case), not yet written; contained (`#…`), `urn:`, conditional and other servers' references are left alone | skip that resource (`forbidden`, `not_found`, `upstream`); a reference on the base whose id FHIR does not allow is an `invalid_reference` skip naming the type and the id's length, never the id |
 | Renewal | before a request, a lapsed access token is renewed with the refresh token; a 401 is renewed once and the request retried | stop: exit 3, `kp auth login` |

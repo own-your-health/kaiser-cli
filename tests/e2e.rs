@@ -304,6 +304,30 @@ fn a_reference_fhir_does_not_allow_is_a_skip_that_never_names_it() {
 }
 
 #[test]
+fn results_a_search_says_it_left_out_are_a_skip_and_the_rest_are_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = MockServer::start();
+    let ctx = ctx(dir.path(), &mock);
+    login(&ctx, "adult1");
+    let line = "Client not authorized for ExplanationOfBenefit - Synthetic Sub-resource";
+    mock.withhold("ExplanationOfBenefit", line);
+
+    let out = dir.path().join("out");
+    let (counts, skipped) = export(&ctx, &out, None);
+    assert_eq!(counts["ExplanationOfBenefit"], 1);
+    assert_eq!(counts["Practitioner"], 1);
+    assert_eq!(skipped, ["forbidden ExplanationOfBenefit"]);
+    let written = std::fs::read_to_string(out.join("records.ndjson")).unwrap();
+    let trailer: serde_json::Value = serde_json::from_str(written.lines().last().unwrap()).unwrap();
+    // Resources of the type the server did not serve: no search, no id.
+    let skip = &trailer["skipped"][0];
+    assert_eq!(skip["resource_type"], "ExplanationOfBenefit", "{skip}");
+    assert_eq!(skip["reason"], line, "{skip}");
+    assert!(skip.get("search").is_none(), "{skip}");
+    assert!(skip.get("id").is_none(), "{skip}");
+}
+
+#[test]
 fn a_missing_sign_in_names_kps_command_once() {
     let dir = tempfile::tempdir().unwrap();
     let mock = MockServer::start();

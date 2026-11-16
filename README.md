@@ -14,7 +14,7 @@ use [`mychart`](https://github.com/piekstra/mychart-cli) for those.
 
 ## Status
 
-v0.1.5. The sign-in and `records export` are tested against
+v0.1.6. The sign-in and `records export` are tested against
 medical-common's mock server; the first run against Kaiser's sandbox waits
 on the app's approval at developer.kp.org.
 
@@ -77,8 +77,9 @@ kp api GET 'ExplanationOfBenefit?patient=<id>'    # one read, the raw answer
 encounter and pharmacy dispense Kaiser serves for the member, then the
 patient, providers, organizations and locations they name. It writes
 medical-common's `records-stream/v1`. A search or reference read Kaiser
-refuses or fails, and a reference that names no valid FHIR id, is listed in
-the stream's trailer as skipped; the export stops only when the sign-in, the
+refuses or fails, a result a search's answer says it left out, and a
+reference that names no valid FHIR id, are listed in the stream's trailer
+as skipped; the export stops only when the sign-in, the
 network or the output fails. Every sign-in error ends with the `kp` command
 that fixes it.
 

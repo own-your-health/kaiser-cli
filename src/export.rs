@@ -9,8 +9,9 @@
 //!    Kaiser's guide serves Coverage, Location, Organization, Patient and
 //!    Practitioner by the ids an EOB references.
 //!
-//! A refused or failed search or read is a [`Skip`]; the export stops only
-//! when the sign-in, the network or the output fails.
+//! A refused or failed search or read is a [`Skip`], and so is what a search's
+//! answer says it left out; the export stops only when the sign-in, the
+//! network or the output fails.
 
 use std::collections::BTreeSet;
 use std::io::Write;
@@ -73,6 +74,10 @@ pub fn run<T: Transport, W: Write>(
 ) -> Result<(), CliError> {
     let base = fhir.base().to_string();
     let mut wanted = Wanted::default();
+    // What a search's answer said it left out, by type: part of the type's
+    // data, not of one search, so one skip per type and line however many
+    // searches carried it (medical-common DESIGN §1.4).
+    let mut withheld: BTreeSet<(&str, String)> = BTreeSet::new();
 
     match block_on(fhir.read("Patient", patient)) {
         Ok(r) => {
@@ -100,6 +105,9 @@ pub fn run<T: Transport, W: Write>(
                     w.resource(r)?;
                     references(r, &base, &mut wanted);
                 }
+                for line in found.withheld() {
+                    withheld.insert((resource_type, line));
+                }
                 if found.truncated {
                     w.skip(Skip::search(
                         label,
@@ -120,6 +128,14 @@ pub fn run<T: Transport, W: Write>(
         }
     }
 
+    for (resource_type, line) in &withheld {
+        w.skip(Skip::resource(
+            *resource_type,
+            "",
+            skip::FORBIDDEN,
+            line.as_str(),
+        ));
+    }
     for (resource_type, reason) in &wanted.refused {
         w.skip(Skip::resource(
             resource_type.as_str(),
