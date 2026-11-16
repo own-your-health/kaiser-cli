@@ -203,24 +203,38 @@ in through `mychart` at Kaiser Permanente - Northwest. Then one read, whose
 output is statuses and counts only. The commands are
 [`mychart`](https://github.com/piekstra/mychart-cli)'s (v0.2.0 or later:
 `patients list` prints `patient-list/v1`, `api GET` one FHIR read as the
-signed-in patient, and a refused read exits 3), not `kp`'s:
+signed-in patient, and a refused read exits 3), not `kp`'s. The read
+counts what Epic says it left out too: an `OperationOutcome` issue coded
+`suppressed` (Epic code 59204, "Client not authorized for <type> - <API>")
+in a 200 answer, which mychart's sandbox found Epic sends for an API the
+app may not use:
 
 ```sh
 p=$(mychart patients list --json | jq -r '.items[] | select(.label=="adult1") | .id')
 mychart api GET "ExplanationOfBenefit?patient=$p&_count=50" --patient adult1 --json \
-  | jq -c '{type: .resourceType, total, entries: ([.entry[]?.resource.resourceType] | group_by(.) | map({(.[0]): length}) | add)}'
+  | jq -c '{type: .resourceType, total,
+      entries: ([.entry[]?.resource.resourceType] | group_by(.) | map({(.[0]): length}) | add),
+      withheld: [.entry[]?.resource | select(.resourceType == "OperationOutcome") | .issue[]? | select(.code == "suppressed")]
+        | {all: length, claim: (map(select((.diagnostics // "") | test("claim"; "i"))) | length)}}'
 ```
 
 | Answer | Means |
 |---|---|
 | exit 3 "access to it was refused" (a 403, or no `ExplanationOfBenefit` in the token's scope), or exit 4 | Northwest serves no EOB through Epic: register at developer.kp.org for `kp` |
-| a `Bundle` with no `ExplanationOfBenefit` entries, for a member who has had care outside Kaiser | Northwest's claims are not in Epic: register for `kp` |
-| a `Bundle` with `ExplanationOfBenefit` entries | Epic serves Northwest's claims, and `mychart records export` (v0.2.1 or later, which searches `ExplanationOfBenefit` at every organization) brings them to medrec. Whether they are all of them (Kaiser's API covers dates of service from 2016-01-01) shows only beside `kp`'s count for the same member |
+| a `Bundle` with no `ExplanationOfBenefit` entries and `withheld.claim` 0, for a member who has had care outside Kaiser | Northwest's claims are not in Epic: register for `kp` |
+| `withheld.claim` above 0, with or without `ExplanationOfBenefit` entries | Epic did not let mychart's app read claims there: it says nothing yet about whether Northwest's claims are in Epic. Check the app's API list for `ExplanationOfBenefit.Search (Claim)`, then repeat |
+| a `Bundle` with `ExplanationOfBenefit` entries and `withheld.claim` 0 | Epic serves Northwest's claims, and `mychart records export` (v0.2.1 or later, which searches `ExplanationOfBenefit` at every organization) brings them to medrec. Whether they are all of them (Kaiser's API covers dates of service from 2016-01-01) shows only beside `kp`'s count for the same member |
 
 Kaiser's claims are mostly for care outside Kaiser: "Kaiser Permanente in
 California currently processes referred care and emergency services claims
 from providers on multiple systems" (the ClaimsConnect notice). A member with
 no outside care may have no EOBs at either server, which tells nothing.
+
+Epic ended its Outside Record APIs (data other organizations sent) in its
+November 2025 version, but its catalog has no Outside Record
+`ExplanationOfBenefit` API, only `(Claim)` and `(Prior Auth)`, so that
+change leaves the test as it is. A claim Kaiser processed for outside care is
+Kaiser's own record, not an outside one.
 
 ## Claims: Kaiser's Patient Access API
 
