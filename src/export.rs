@@ -177,13 +177,8 @@ fn parse_reference(reference: &str, base: &str) -> Option<(String, String)> {
         None | Some("_history") => {}
         Some(_) => return None,
     }
-    // As pk-med-fhir reads ids: Epic's unconstrained ids pass FHIR R4's 64.
-    let id_ok = (1..=pk_med_fhir::MAX_ID_LEN).contains(&id.len())
-        && !id.chars().all(|c| c == '.')
-        && id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.');
-    (REFERENCED.contains(&resource_type) && id_ok)
+    // pk-med-fhir's rule, so a read never refuses an id this let through.
+    (REFERENCED.contains(&resource_type) && pk_med_fhir::is_id(id))
         .then(|| (resource_type.to_string(), id.to_string()))
 }
 
