@@ -24,7 +24,7 @@ pub fn run(ctx: &Ctx, cmd: &PatientsCmd) -> Result<(), CliError> {
     }
     let mut columns = vec!["label", "id", "organization", "relationship"];
     if *status {
-        columns.extend(["usable", "refused", "error"]);
+        columns.extend(["usable", "refused", "error", "remedy"]);
     }
     output::table(&output::table_view(&rows, &columns));
     Ok(())
@@ -33,7 +33,8 @@ pub fn run(ctx: &Ctx, cmd: &PatientsCmd) -> Result<(), CliError> {
 /// `patient-list/v1` for the members `org` selects. With `status`, each row
 /// also has `usable` and `refused` (whether Kaiser refused the sign-in). A
 /// sign-in that cannot be read is that row's `error`, not the command's,
-/// with `usable: false` and `refused: null`, since it is unknown.
+/// with `usable: false` and `refused: null`, since it is unknown, and its
+/// `remedy` as kp's command.
 pub fn list(ctx: &Ctx, status: bool, org: Option<&str>) -> Result<Value, CliError> {
     let org = org.map(kaiser::resolve_org).transpose()?;
     let contexts: Vec<_> = ctx
@@ -66,9 +67,13 @@ pub fn list(ctx: &Ctx, status: bool, org: Option<&str>) -> Result<Value, CliErro
                         .into();
                 }
                 Err(e) => {
+                    let e = super::sign_in_again(e, c);
                     row["usable"] = false.into();
                     row["refused"] = Value::Null;
                     row["error"] = e.message().into();
+                    if let Some(remedy) = e.remedy() {
+                        row["remedy"] = remedy.into();
+                    }
                 }
             }
         }

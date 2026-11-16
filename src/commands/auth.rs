@@ -260,7 +260,11 @@ pub fn status_of(ctx: &Ctx) -> Result<(AuthStatus, Value), CliError> {
         let session = match sessions.load(&c.account()) {
             Ok(session) => session,
             Err(e) => {
+                let e = super::sign_in_again(e, c);
                 row["error"] = e.message().into();
+                if let Some(remedy) = e.remedy() {
+                    row["remedy"] = remedy.into();
+                }
                 None
             }
         };
@@ -322,6 +326,7 @@ fn status(ctx: &Ctx) -> Result<(), CliError> {
                         "renewable": r["renewable"],
                         "token_expires": r["token_expires_at"],
                         "error": r["error"],
+                        "remedy": r["remedy"],
                     })
                 })
                 .collect();

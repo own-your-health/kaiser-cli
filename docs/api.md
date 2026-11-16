@@ -259,8 +259,9 @@ proxies and from members under 18.
 | Member | `GET Patient/<patient>` from the token response's `patient` | skip `Patient` |
 | Searches | `ExplanationOfBenefit`, `Coverage`, `Encounter`, `MedicationDispense`, each `?patient=<id>`, every page | skip the search: `forbidden` (403), `unsupported` (404), `upstream`, `page_cap` |
 | `--since D` | `&_lastUpdated=geD` on each search; the member's `Patient` and every referenced read come whole (`since_unbounded`) | as above |
-| References | a read of each `Coverage`, `Location`, `Organization`, `Patient`, `Practitioner` the results name, relative or absolute on the base, not yet written; contained (`#…`) and other servers' references are left alone | skip that resource |
+| References | a read of each `Coverage`, `Location`, `Organization`, `Patient`, `Practitioner` the results name, relative or absolute on the base (scheme and host in any case), not yet written; contained (`#…`), `urn:`, conditional and other servers' references are left alone | skip that resource (`forbidden`, `not_found`, `upstream`); a reference on the base whose id FHIR does not allow is an `upstream` skip naming the type and the id's length, never the id |
 | Renewal | before a request, a lapsed access token is renewed with the refresh token; a 401 is renewed once and the request retried | stop: exit 3, `kp auth login` |
+| Stored sign-in | the member's pk-med-smart session from the Keychain | stop: exit 1, `kp auth logout` then `kp auth login` when it does not read, `kp self-update` when a newer kp wrote it |
 
 The export stops, with `complete: false` in the trailer and the error's exit
 code, only when the sign-in is refused, the server is unreachable or the

@@ -283,6 +283,87 @@ fn a_reference_longer_than_64_characters_is_read() {
 }
 
 #[test]
+fn a_reference_fhir_does_not_allow_is_a_skip_that_never_names_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = MockServer::start();
+    let ctx = ctx(dir.path(), &mock);
+    login(&ctx, "adult1");
+    let searchset =
+        include_str!("fixtures/refused-id-eob-searchset.json").replace("PATIENT_ID", PATIENT_ID);
+    mock.fail(Fault::new("GET", "/fhir/ExplanationOfBenefit", 200, searchset).times(5));
+
+    let out = dir.path().join("out");
+    let (counts, skipped) = export(&ctx, &out, None);
+    assert_eq!(counts["ExplanationOfBenefit"], 1);
+    assert_eq!(skipped, ["upstream Practitioner"]);
+    let written = std::fs::read_to_string(out.join("records.ndjson")).unwrap();
+    let trailer = written.lines().last().unwrap();
+    assert!(!trailer.contains("not a fhir id"), "{trailer}");
+    assert!(trailer.contains("characters"), "{trailer}");
+    assert!(!mock.requests().iter().any(|r| r.path().contains("not")));
+}
+
+#[test]
+fn a_missing_sign_in_names_kps_command_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = MockServer::start();
+    let ctx = ctx(dir.path(), &mock);
+    login(&ctx, "adult1");
+    let state = ctx.state_file().unwrap().load().unwrap();
+    assert!(ctx.vault.delete(&state.contexts[0].account()).unwrap());
+    let err = commands::records::export(
+        &ctx,
+        &ExportArgs {
+            who: PatientArgs::default(),
+            since: None,
+            ndjson: true,
+            output: None,
+        },
+    )
+    .unwrap_err();
+    assert_eq!(err.exit_code(), 3, "{err}");
+    assert!(!err.message().contains("auth login"), "{err}");
+    assert_eq!(
+        err.remedy(),
+        Some("run `kp auth login --org sandbox --label adult1`")
+    );
+}
+
+#[test]
+fn a_sign_in_a_newer_kp_stored_says_to_update() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = MockServer::start();
+    let ctx = ctx(dir.path(), &mock);
+    login(&ctx, "adult1");
+    let state = ctx.state_file().unwrap().load().unwrap();
+    let account = state.contexts[0].account();
+    let stored = ctx.vault.read(&account).unwrap().unwrap();
+    let mut session: serde_json::Value = serde_json::from_str(stored.expose()).unwrap();
+    session["format"] = (pk_med_smart::SESSION_FORMAT + 1).into();
+    ctx.vault
+        .write(
+            &account,
+            &pk_cli_secrets::Secret::new(session.to_string().as_str()),
+        )
+        .unwrap();
+
+    let err = commands::records::export(
+        &ctx,
+        &ExportArgs {
+            who: PatientArgs::default(),
+            since: None,
+            ndjson: false,
+            output: Some(dir.path().join("out")),
+        },
+    )
+    .unwrap_err();
+    assert_eq!(err.remedy(), Some("run `kp self-update`"), "{err}");
+    assert!(!err.to_string().contains(PATIENT_ID), "{err}");
+    let list = commands::patients::list(&ctx, true, None).unwrap();
+    assert_eq!(list["items"][0]["remedy"], "run `kp self-update`");
+}
+
+#[test]
 fn a_production_member_is_not_written_to_a_plain_file() {
     let dir = tempfile::tempdir().unwrap();
     let mock = MockServer::start();
@@ -541,6 +622,11 @@ fn one_unreadable_sign_in_does_not_hide_the_others() {
     assert_eq!(rows[1]["usable"], false);
     assert!(rows[1]["error"].as_str().is_some_and(|e| !e.is_empty()));
     assert!(!rows[1]["error"].as_str().unwrap().contains("pat-0002"));
+    assert_eq!(
+        rows[1]["remedy"],
+        "run `kp auth logout --org sandbox --patient child1`, then `kp auth login --org sandbox --label child1`"
+    );
+    assert!(rows[0].get("remedy").is_none());
     assert_eq!(status["authenticated"], true);
 
     let list = commands::patients::list(&ctx, true, None).unwrap();
@@ -550,6 +636,7 @@ fn one_unreadable_sign_in_does_not_hide_the_others() {
     assert_eq!(items[1]["usable"], false);
     assert!(items[1]["error"].is_string());
     assert!(items[1]["refused"].is_null());
+    assert_eq!(items[1]["remedy"], rows[1]["remedy"]);
     assert_eq!(items[0]["refused"], false);
     let sandbox = commands::patients::list(&ctx, false, Some("sandbox")).unwrap();
     assert_eq!(sandbox["items"].as_array().unwrap().len(), 2);
