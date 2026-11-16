@@ -6,7 +6,7 @@ member.
 
 | | Clinical records | Health-plan claims |
 |---|---|---|
-| What | US Core / USCDI clinical data: conditions, results, medications, allergies, immunizations, encounters, notes and documents, plus `Coverage` | CARIN Blue Button `ExplanationOfBenefit` with `Coverage`, `Patient`, `Practitioner`, `Organization`, `Location`; dates of service from 2016-01-01 |
+| What | US Core / USCDI clinical data: conditions, results, medications, allergies, immunizations, encounters, notes and documents, plus `Coverage`; `ExplanationOfBenefit` only if the region's claims are in Epic, untested ([Claims through Epic](#claims-through-epic)) | CARIN Blue Button `ExplanationOfBenefit` with `Coverage`, `Patient`, `Practitioner`, `Organization`, `Location`; dates of service from 2016-01-01 |
 | Server | Epic (February 2026), one per region, under `fhir.kp.org` | Smile CDR behind Apigee, one for all regions, under `kpx-service-bus.kp.org` |
 | Registration | Epic's, at fhir.epic.com (open.epic). Kaiser: "No approval (beyond the OAuth security flow) is needed for the open.epic API" | Kaiser's own, at developer.kp.org: a "Secure API" that "require[s] an account and approval" |
 | Client | Whatever Epic issues (the `mychart` app: public client, PKCE, Epic dynamic client registration) | Confidential: client id and secret, `client_secret_basic`, PKCE S256 required |
@@ -23,20 +23,25 @@ member.
    provide connectivity details about the application to epic." Each Kaiser
    region is one Epic organization in Epic's directory, so it is an `--org` of
    `mychart`, not a separate CLI.
-2. **Claims (EOB) need `kp`.** The health plan's Patient Access API is "separate
-   and distinct from the open.epic clinical data API" and needs a reviewed
-   registration at Kaiser. If the household registers, `kp` implements
-   `health-records/v1` over it so `medrec import --from kp` works unchanged.
-   Without that registration, Kaiser clinical records and `Coverage` still
-   arrive through `mychart`; only EOBs are missing.
+2. **Claims (EOB) come through `kp`, unless Kaiser's Epic serves them.** The
+   health plan's Patient Access API is "separate and distinct from the
+   open.epic clinical data API" and needs a reviewed registration at Kaiser.
+   If the household registers, `kp` implements `health-records/v1` over it so
+   `medrec import --from kp` works unchanged. Without that registration,
+   Kaiser clinical records and `Coverage` still arrive through `mychart`. EOBs
+   arrive too only if Kaiser's Epic serves them to a patient token and
+   `mychart` searches for them, which it does not yet
+   ([Claims through Epic](#claims-through-epic)).
 
-Open until a production client id exists: whether Epic's automatic client id
-distribution has reached Kaiser. Epic distributes a patient-facing USCDI app's
+Two questions stay open until `mychart` has a production client id. The first
+is whether Epic's automatic client id distribution has reached Kaiser. Epic distributes a patient-facing USCDI app's
 client id to every community member "on a rolling 12-hour cycle" unless the
 member "has disabled auto-download functionality"; Kaiser's documentation does
 not say. Loading a Kaiser region's authorize URL with the production client id
 answers it without signing in: Kaiser's sign-in page means the client is known,
-an OAuth error page means it is not.
+an OAuth error page means it is not. The second is whether Kaiser's Epic returns
+`ExplanationOfBenefit` to a member's token
+([Claims through Epic](#claims-through-epic)).
 
 ## Clinical: Kaiser's Epic endpoints
 
@@ -75,8 +80,9 @@ identical except for the endpoint URLs:
 - One `jwks_uri` key set for all regions (`.../Security/Open/PublicKeys/530027/OIDC`).
 
 The CapabilityStatement (`metadata`) lists 59 resource types, including
-`Coverage` and `ExplanationOfBenefit` (Kaiser's health plan runs in the same
-Epic instance), `DocumentReference` and `Binary`.
+`Coverage`, `ExplanationOfBenefit`, `Claim`, `DocumentReference` and `Binary`.
+That is Epic's statement for the version (February 2026), not evidence that a
+region holds data of each type.
 
 ### Traps
 
@@ -94,11 +100,16 @@ Epic instance), `DocumentReference` and `Binary`.
 - **`implementation.url` differs from the base.** The CapabilityStatement names
   `https://fhir.kp.org/KPPolarisPortal/esb-envlbl/<n>/api/FHIR/R4`. Use the
   directory's base for requests and `aud`.
-- **EOB is outside USCDI auto-download.** Epic's USCDI v3 automatic
-  distribution covers `Coverage.Read/Search` but not `ExplanationOfBenefit`,
-  which belongs to Epic's "CMS Payer" category. An app that selects EOB APIs
-  in its Epic registration no longer meets "Uses only USCDI v3 FHIR APIs" and
-  loses automatic distribution.
+- **Epic's two lists of USCDI APIs disagree on EOB.** Epic's API catalog
+  marks `ExplanationOfBenefit.Read (Claim) (R4)` and
+  `ExplanationOfBenefit.Search (Claim) (R4)` as USCDI, and Epic's app
+  registration form follows it: an app that selects them stays eligible for
+  USCDI v3 automatic distribution (seen on `mychart`'s registration,
+  2026-11-16). The appendix of Epic's "Patient-Facing Apps Using FHIR" page
+  lists no `ExplanationOfBenefit` among the USCDI v3 APIs, and offers EOB
+  through a separate "CMS Payer Apps" route instead. The catalog is what
+  registration checks, so it wins
+  ([Claims through Epic](#claims-through-epic)).
 
 ### Proxy access to a child's record
 
@@ -160,6 +171,56 @@ portal is Epic MyChart (`https://healthy.kaiserpermanente.org/mychartnw/`).
 Every route ends in `medrec images intake` on the received folder, zip or disc
 image. A download portal is used by the person in a browser; no tool calls an
 image-exchange vendor's API.
+
+## Claims through Epic
+
+Epic serves health-plan claims as `ExplanationOfBenefit (Claim)`:
+"ExplanationOfBenefit (Claim) resources represent claims data received and
+processed by health plans, including services rendered to a patient and the
+cost information associated with those services. … Subject to configuration by
+the organization, this API can return resources built from pending claims, or
+claims processed or paid by an external organization. Resource information for
+these claims might be unverified, incomplete, or duplicative." It returns what
+the plan adjudicates in Epic's payer software, Tapestry.
+
+| Source (read 2026-11-16) | What it says |
+|---|---|
+| Epic's API catalog (`https://fhir.epic.com/Specifications/Selections`, the JSON behind the Specifications page) | `ExplanationOfBenefit.Read (Claim) (R4)` (id 1072) and `ExplanationOfBenefit.Search (Claim) (R4)` (id 1073): `"IsUSCDI": true`, API type "USCDI", for "Backend Systems and Non-OAuth 2.0, Clinicians or Administrative Users, Patients". `Coverage.Read` and `Coverage.Search (Patient Insurance Information) (R4)` likewise |
+| Epic, Patient-Facing Apps Using FHIR | The USCDI v3 appendix names no `ExplanationOfBenefit`. A separate "CMS Payer Apps" auto-download path: the app "Uses only ExplanationOfBenefit (of any supported version) and/or QuestionnaireResponse.Read (Prior Auth) and/or any FHIR APIs … from the list in the appendix", selects "CMS Patient Access API", and the organization "Is marked to use CMS Payer APIs in their open.epic licensing agreement". Also: "Tapestry customers with Autodownloads turned on will automatically connect with patient access applications" |
+| Kaiser's CapabilityStatements (Northwest, Washington, Northern California, Colorado) | `ExplanationOfBenefit`: `read` and `search-type`, by `patient`, `created`, `service-date`, `type`, `use` and 19 more. `Coverage` likewise |
+| Kaiser, KP ClaimsConnect notice to providers | California: "The new claims platform we will be using is called Kaiser Permanente ClaimsConnect, based primarily on Epic's Tapestry® referral and claims software", cut over in three phases during 2016. Nothing found for Northwest or Washington |
+
+So California's claims are in Epic, and every region's Epic declares the EOB
+API. Neither shows that Kaiser's Epic returns claims to a patient's app: Kaiser
+meets the CMS Patient Access rule on a separate server (Smile CDR, below), and
+Epic's EOB returns only what the organization has configured.
+
+### The test
+
+Run once `mychart` has a production client id that Kaiser's Northwest
+authorization server accepts (the authorize-URL check above). A member signs
+in through `mychart` at Kaiser Permanente - Northwest. Then one read, whose
+output is statuses and counts only. The commands are
+[`mychart`](https://github.com/piekstra/mychart-cli)'s (v0.2.0 or later:
+`patients list` prints `patient-list/v1`, `api GET` one FHIR read as the
+signed-in patient, and a refused read exits 3), not `kp`'s:
+
+```sh
+p=$(mychart patients list --json | jq -r '.items[] | select(.label=="adult1") | .id')
+mychart api GET "ExplanationOfBenefit?patient=$p&_count=50" --patient adult1 --json \
+  | jq -c '{type: .resourceType, total, entries: ([.entry[]?.resource.resourceType] | group_by(.) | map({(.[0]): length}) | add)}'
+```
+
+| Answer | Means |
+|---|---|
+| exit 3 "access to it was refused" (a 403, or no `ExplanationOfBenefit` in the token's scope), or exit 4 | Northwest serves no EOB through Epic: register at developer.kp.org for `kp` |
+| a `Bundle` with no `ExplanationOfBenefit` entries, for a member who has had care outside Kaiser | Northwest's claims are not in Epic: register for `kp` |
+| a `Bundle` with `ExplanationOfBenefit` entries | Epic serves Northwest's claims; they reach medrec once `mychart`'s export searches `ExplanationOfBenefit` (in progress in mychart-cli). Whether they are all of them (Kaiser's API covers dates of service from 2016-01-01) shows only beside `kp`'s count for the same member |
+
+Kaiser's claims are mostly for care outside Kaiser: "Kaiser Permanente in
+California currently processes referred care and emergency services claims
+from providers on multiple systems" (the ClaimsConnect notice). A member with
+no outside care may have no EOBs at either server, which tells nothing.
 
 ## Claims: Kaiser's Patient Access API
 
@@ -253,7 +314,7 @@ Kaiser "recommend[s] that your application includes a clear privacy policy"
   of information obtained through them; Kaiser disclaims all warranties and
   liability.
 
-## Sources (read 2026-11-12)
+## Sources (read 2026-11-12 unless dated)
 
 - Kaiser developer portal: `https://developer.kp.org/#/home`, the API catalog
   `https://developer.kp.org/#/apis` and its data
@@ -283,5 +344,12 @@ Kaiser "recommend[s] that your application includes a clear privacy policy"
   `https://open.epic.com/Endpoints/Brands`, `https://open.epic.com/Endpoints/R4`
 - Epic, Patient-Facing Apps Using FHIR (automatic client id distribution):
   `https://fhir.epic.com/Documentation?docId=patientfacingfhirapps`
+- Epic's API catalog as JSON (read 2026-11-16):
+  `https://fhir.epic.com/Specifications/Selections`, and one API's
+  description at `https://fhir.epic.com/Specifications/Api?id=<id>` (1073:
+  `ExplanationOfBenefit.Search (Claim) (R4)`)
+- Kaiser, KP ClaimsConnect (read 2026-11-16):
+  `https://healthy.kaiserpermanente.org/content/dam/kporg/final/documents/community-providers/national/ever/kp-claims-connect-overview-en.pdf`
+  and `.../kp-claims-connect-platform-en.pdf`
 - Each Kaiser base's `.well-known/smart-configuration` and `metadata`, and the
   claims server's `metadata`.
