@@ -163,15 +163,21 @@ pub struct Sessions(pub Arc<dyn Vault>);
 
 impl Sessions {
     fn hide(&self, e: CliError, account: &str) -> CliError {
-        let text = e.to_string();
-        if !text.contains(account) {
+        if !e.message().contains(account) {
             return e;
         }
         let shown = match account.rsplit_once('/') {
             Some((head, _)) => format!("{head}/…"),
             None => "a sign-in".to_string(),
         };
-        CliError::Keychain(text.replace(account, &shown))
+        let mut hidden = CliError::Keychain(e.message().replace(account, &shown));
+        if let Some(reason) = e.reason() {
+            hidden = hidden.because(reason);
+        }
+        match e.remedy() {
+            Some(remedy) => hidden.with_remedy(remedy.to_string()),
+            None => hidden,
+        }
     }
 }
 
@@ -323,6 +329,23 @@ mod tests {
             err.remedy(),
             Some("run `kp auth login --org kaiser-health-plan --label <WHO>`")
         );
+    }
+
+    #[test]
+    fn a_keychain_error_hides_the_account_and_keeps_its_remedy() {
+        let sessions = Sessions(std::sync::Arc::new(
+            crate::credentials::MemoryVault::default(),
+        ));
+        let account = "smart/kaiser-health-plan-sandbox/pat-0001";
+        let e = CliError::Keychain(format!("{account} could not be read"))
+            .with_remedy("unlock the keychain");
+        let hidden = sessions.hide(e, account);
+        assert_eq!(
+            hidden.message(),
+            "smart/kaiser-health-plan-sandbox/… could not be read"
+        );
+        assert_eq!(hidden.remedy(), Some("unlock the keychain"));
+        assert_eq!(hidden.exit_code(), 1);
     }
 
     #[test]

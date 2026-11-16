@@ -95,7 +95,8 @@ Medical records are the most sensitive data a household has.
   remedy, `refused_at` recorded, the last complete export kept), a
   declined consent, `-o` refused for a production member, two members and
   logout, `set-credential`, a reference whose id is longer than 64
-  characters (`tests/fixtures/`, invented).
+  characters and one FHIR does not allow (`tests/fixtures/`, invented), and
+  kp's remedy for a missing, unreadable or newer-format sign-in.
 - `tests/no_personal_data.rs`: personal-data shapes in tracked files.
 - Unit tests in each module.
 

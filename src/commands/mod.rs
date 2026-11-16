@@ -123,11 +123,11 @@ impl Ctx {
     }
 }
 
-/// An auth failure's remedy, as kp spells the sign-in for this member.
+/// A sign-in error's remedy as kp's own command for this member: a refused or
+/// missing sign-in is `auth login`, a stored one that does not read is
+/// `auth logout` then `auth login`, and one a newer kp wrote is
+/// `self-update`. Other errors keep their remedy.
 pub fn sign_in_again(e: CliError, context: &Context) -> CliError {
-    if e.exit_code() != 3 {
-        return e;
-    }
     let org = match context.environment() {
         Ok(Environment::Sandbox) => "sandbox",
         _ => kaiser::ORG_ID,
@@ -137,7 +137,31 @@ pub fn sign_in_again(e: CliError, context: &Context) -> CliError {
         .as_deref()
         .map(|l| format!(" --label {l}"))
         .unwrap_or_default();
-    e.with_remedy(format!("run `{BIN} auth login --org {org}{label}`"))
+    let login = format!("`{BIN} auth login --org {org}{label}`");
+    match e.remedy() {
+        Some(pk_med_smart::remedy::UPDATE) => {
+            return e.with_remedy(format!("run `{BIN} self-update`"));
+        }
+        Some(pk_med_smart::remedy::CLEAR_AND_SIGN_IN_AGAIN) => {
+            // The member's id stays out of the message: a label, or the
+            // placeholder `patients list` fills.
+            let (who, found) = match context.label.as_deref() {
+                Some(label) => (label.to_string(), String::new()),
+                None => (
+                    "<WHO>".to_string(),
+                    format!(" (`{BIN} patients list` shows who)"),
+                ),
+            };
+            return e.with_remedy(format!(
+                "run `{BIN} auth logout --org {org} --patient {who}`{found}, then {login}"
+            ));
+        }
+        _ => {}
+    }
+    if e.exit_code() != 3 {
+        return e;
+    }
+    e.with_remedy(format!("run {login}"))
 }
 
 /// An error as one line for stderr, its remedy after it, for a command

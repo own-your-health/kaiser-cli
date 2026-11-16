@@ -1,0 +1,19 @@
+{
+  "resourceType": "Bundle",
+  "type": "searchset",
+  "total": 1,
+  "entry": [
+    {
+      "fullUrl": "ExplanationOfBenefit/eob-refused-ref-1",
+      "resource": {
+        "resourceType": "ExplanationOfBenefit",
+        "id": "eob-refused-ref-1",
+        "status": "active",
+        "use": "claim",
+        "patient": { "reference": "Patient/PATIENT_ID" },
+        "provider": { "reference": "Practitioner/not a fhir id" }
+      },
+      "search": { "mode": "match" }
+    }
+  ]
+}

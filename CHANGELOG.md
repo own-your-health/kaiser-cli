@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.1.4 — 2026-11-16
+
+- `records export` lists a reference on Kaiser's server whose id FHIR does
+  not allow as an `upstream` skip in the trailer, naming the type and the
+  id's length, never the id. Before, kp left it out without saying so. A
+  reference whose `_history` version is not allowed still reads the
+  current version.
+- A sign-in error says once what to run, as kp spells it: `kp auth login`
+  for a missing or refused sign-in, `kp auth logout` then `kp auth login`
+  for one that does not read, and `kp self-update` for one a newer kp
+  stored. `auth status` and `patients list --status` show that as the
+  row's `remedy`.
+- On medical-common v0.4.7 (cli-common v0.31.1, as before).
+
 ## v0.1.3 — 2026-11-16
 
 - `records export` follows an absolute reference on Kaiser's base however

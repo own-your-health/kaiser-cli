@@ -17,7 +17,7 @@ use std::io::Write;
 
 use pk_cli_core::transport::Transport;
 use pk_cli_core::{block_on, CliError, Reason};
-use pk_med_fhir::{FhirClient, RawResource};
+use pk_med_fhir::{is_id, normalize_base, FhirClient, RawResource, ReferenceTarget};
 use pk_med_records::stream::skip;
 use pk_med_records::{RecordsWriter, Skip};
 use serde_json::Value;
@@ -72,7 +72,7 @@ pub fn run<T: Transport, W: Write>(
     note: &dyn Fn(String),
 ) -> Result<(), CliError> {
     let base = fhir.base().to_string();
-    let mut wanted = BTreeSet::new();
+    let mut wanted = Wanted::default();
 
     match block_on(fhir.read("Patient", patient)) {
         Ok(r) => {
@@ -120,7 +120,15 @@ pub fn run<T: Transport, W: Write>(
         }
     }
 
-    for (resource_type, id) in wanted {
+    for (resource_type, reason) in &wanted.refused {
+        w.skip(Skip::resource(
+            resource_type.as_str(),
+            "",
+            skip::UPSTREAM,
+            reason.as_str(),
+        ));
+    }
+    for (resource_type, id) in wanted.reads {
         if w.written(&resource_type, &id) {
             continue;
         }
@@ -140,10 +148,21 @@ pub fn run<T: Transport, W: Write>(
     Ok(())
 }
 
-/// Every `reference` in `r` to a [`REFERENCED`] type on this server, as
-/// `(type, id)`: relative (`Organization/o1`), or absolute under `base`.
-/// Contained references (`#…`) and other servers' are left alone.
-pub fn references(r: &RawResource, base: &str, out: &mut BTreeSet<(String, String)>) {
+/// What the pulled resources name on this server, as [`references`] finds it.
+#[derive(Debug, Default)]
+pub struct Wanted {
+    /// `(type, id)` to read.
+    pub reads: BTreeSet<(String, String)>,
+    /// `(type, reason)` for a reference to a [`REFERENCED`] type on this
+    /// server whose id FHIR does not allow: a skip, since no read can ask for
+    /// it. The reason names the type and the id's length, never the id.
+    pub refused: BTreeSet<(String, String)>,
+}
+
+/// Every `reference` in `r` to a [`REFERENCED`] type on this server, relative
+/// or absolute under `base`, into `out`. Contained (`#…`), `urn:`,
+/// conditional and other servers' references are left alone.
+pub fn references(r: &RawResource, base: &str, out: &mut Wanted) {
     let Ok(value) = r.value() else { return };
     let mut stack = vec![&value];
     while let Some(v) = stack.pop() {
@@ -151,8 +170,8 @@ pub fn references(r: &RawResource, base: &str, out: &mut BTreeSet<(String, Strin
             Value::Object(map) => {
                 for (key, child) in map {
                     if key == "reference" {
-                        if let Some(pair) = child.as_str().and_then(|s| parse_reference(s, base)) {
-                            out.insert(pair);
+                        if let Some(reference) = child.as_str() {
+                            reference_into(reference, base, out);
                         }
                     } else {
                         stack.push(child);
@@ -165,10 +184,43 @@ pub fn references(r: &RawResource, base: &str, out: &mut BTreeSet<(String, Strin
     }
 }
 
+fn reference_into(reference: &str, base: &str, out: &mut Wanted) {
+    match ReferenceTarget::read(reference) {
+        Ok(Some(t)) if t.is_under(base) && REFERENCED.contains(&t.resource_type) => {
+            out.reads
+                .insert((t.resource_type.to_string(), t.id.to_string()));
+        }
+        Ok(_) => {}
+        Err(refused)
+            if REFERENCED.contains(&refused.resource_type) && on_this_server(reference, base) =>
+        {
+            if is_id(refused.id) {
+                // Only the `_history` version is refused; kp reads the
+                // current version of every reference anyway.
+                out.reads
+                    .insert((refused.resource_type.to_string(), refused.id.to_string()));
+            } else {
+                out.refused
+                    .insert((refused.resource_type.to_string(), refused.to_string()));
+            }
+        }
+        Err(_) => {}
+    }
+}
+
+/// Whether a reference `ReferenceTarget::read` refused is relative, or
+/// absolute under `base` (compared as [`normalize_base`] spells both).
+fn on_this_server(reference: &str, base: &str) -> bool {
+    !reference.contains("://")
+        || normalize_base(reference).starts_with(&format!("{}/", normalize_base(base)))
+}
+
+/// The one read a single reference asks for, if any (for the tests).
+#[cfg(test)]
 fn parse_reference(reference: &str, base: &str) -> Option<(String, String)> {
-    pk_med_fhir::ReferenceTarget::parse(reference)
-        .filter(|t| t.is_under(base) && REFERENCED.contains(&t.resource_type))
-        .map(|t| (t.resource_type.to_string(), t.id.to_string()))
+    let mut out = Wanted::default();
+    reference_into(reference, base, &mut out);
+    out.reads.into_iter().next()
 }
 
 #[cfg(test)]
@@ -192,9 +244,9 @@ mod tests {
                     {"x":{"reference":"Organization/bad id"}}]}"##,
         )
         .unwrap();
-        let mut out = BTreeSet::new();
+        let mut out = Wanted::default();
         references(&r, BASE, &mut out);
-        let got: Vec<String> = out.iter().map(|(t, i)| format!("{t}/{i}")).collect();
+        let got: Vec<String> = out.reads.iter().map(|(t, i)| format!("{t}/{i}")).collect();
         assert_eq!(
             got,
             [
@@ -205,6 +257,37 @@ mod tests {
                 "Practitioner/prac-0001",
             ]
         );
+        // `Organization/bad id` is on this server and names no FHIR id.
+        let refused: Vec<&str> = out.refused.iter().map(|(t, _)| t.as_str()).collect();
+        assert_eq!(refused, ["Organization"]);
+    }
+
+    #[test]
+    fn a_refused_reference_is_kept_for_a_skip_only_on_this_server() {
+        let r = RawResource::parse(
+            r##"{"resourceType":"ExplanationOfBenefit","id":"eob-0002",
+            "provider":{"reference":"Practitioner/not an id"},
+            "facility":{"reference":"HTTPS://FHIR.EXAMPLE.ORG/r4/Location/also bad"},
+            "careTeam":[{"provider":{"reference":"https://elsewhere.example.org/r4/Practitioner/bad one"}}],
+            "insurance":[{"coverage":{"reference":"Coverage/cov-0001/_history/not a version"}}],
+            "item":[{"encounter":[{"reference":"Encounter/not an id"}]}]}"##,
+        )
+        .unwrap();
+        let mut out = Wanted::default();
+        references(&r, BASE, &mut out);
+        // A refused version still reads the current Coverage.
+        let reads: Vec<String> = out.reads.iter().map(|(t, i)| format!("{t}/{i}")).collect();
+        assert_eq!(reads, ["Coverage/cov-0001"]);
+        // Another server's reference and an unreferenced type are left alone.
+        let refused: Vec<&str> = out.refused.iter().map(|(t, _)| t.as_str()).collect();
+        assert_eq!(refused, ["Location", "Practitioner"]);
+        for (_, reason) in &out.refused {
+            assert!(
+                !reason.contains("bad") && !reason.contains("not an id"),
+                "{reason}"
+            );
+            assert!(reason.contains("characters"), "{reason}");
+        }
     }
 
     #[test]
