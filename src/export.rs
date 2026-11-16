@@ -74,6 +74,10 @@ pub fn run<T: Transport, W: Write>(
 ) -> Result<(), CliError> {
     let base = fhir.base().to_string();
     let mut wanted = Wanted::default();
+    // What a search's answer said it left out, by type: part of the type's
+    // data, not of one search, so one skip per type and line however many
+    // searches carried it (medical-common DESIGN §1.4).
+    let mut withheld: BTreeSet<(&str, String)> = BTreeSet::new();
 
     match block_on(fhir.read("Patient", patient)) {
         Ok(r) => {
@@ -101,10 +105,8 @@ pub fn run<T: Transport, W: Write>(
                     w.resource(r)?;
                     references(r, &base, &mut wanted);
                 }
-                // What the server says it left out: the rest of the results
-                // stay, and each distinct line is a skip (medical-common §1.4).
                 for line in found.withheld() {
-                    w.skip(Skip::search(label.as_str(), skip::FORBIDDEN, line));
+                    withheld.insert((resource_type, line));
                 }
                 if found.truncated {
                     w.skip(Skip::search(
@@ -126,6 +128,14 @@ pub fn run<T: Transport, W: Write>(
         }
     }
 
+    for (resource_type, line) in &withheld {
+        w.skip(Skip::resource(
+            *resource_type,
+            "",
+            skip::FORBIDDEN,
+            line.as_str(),
+        ));
+    }
     for (resource_type, reason) in &wanted.refused {
         w.skip(Skip::resource(
             resource_type.as_str(),

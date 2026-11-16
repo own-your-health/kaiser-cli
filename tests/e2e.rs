@@ -318,8 +318,13 @@ fn results_a_search_says_it_left_out_are_a_skip_and_the_rest_are_kept() {
     assert_eq!(counts["Practitioner"], 1);
     assert_eq!(skipped, ["forbidden ExplanationOfBenefit"]);
     let written = std::fs::read_to_string(out.join("records.ndjson")).unwrap();
-    let trailer = written.lines().last().unwrap();
-    assert!(trailer.contains(line), "{trailer}");
+    let trailer: serde_json::Value = serde_json::from_str(written.lines().last().unwrap()).unwrap();
+    // Resources of the type the server did not serve: no search, no id.
+    let skip = &trailer["skipped"][0];
+    assert_eq!(skip["resource_type"], "ExplanationOfBenefit", "{skip}");
+    assert_eq!(skip["reason"], line, "{skip}");
+    assert!(skip.get("search").is_none(), "{skip}");
+    assert!(skip.get("id").is_none(), "{skip}");
 }
 
 #[test]
