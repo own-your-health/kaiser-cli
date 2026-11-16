@@ -76,9 +76,11 @@ kp api GET 'ExplanationOfBenefit?patient=<id>'    # one read, the raw answer
 `records export` pulls every claim (`ExplanationOfBenefit`), coverage,
 encounter and pharmacy dispense Kaiser serves for the member, then the
 patient, providers, organizations and locations they name. It writes
-medical-common's `records-stream/v1`. A search Kaiser refuses or fails is
-listed in the stream's trailer as skipped; the export stops only when the
-sign-in, the network or the output fails.
+medical-common's `records-stream/v1`. A search or reference read Kaiser
+refuses or fails, and a reference that names no valid FHIR id, is listed in
+the stream's trailer as skipped; the export stops only when the sign-in, the
+network or the output fails. Every sign-in error ends with the `kp` command
+that fixes it.
 
 ## Commands
 
@@ -87,9 +89,9 @@ sign-in, the network or the output fails.
 | `kp orgs list`, `kp orgs search <TEXT>` | the health plan and its sandbox (`org-list/v1`) |
 | `kp auth set-credential [--sandbox] [--overwrite]` | store the app's client id and secret |
 | `kp auth login [--org sandbox] [--label <WHO>] [--no-browser] [--timeout <MIN>]` | sign a member in; waits up to `--timeout` minutes (default 10, at most 60) |
-| `kp auth status` | what is stored (`auth-status/v1`), per environment and member |
+| `kp auth status` | what is stored (`auth-status/v1`), per environment and member; a sign-in that does not read has its `error` and `remedy` |
 | `kp auth logout [--patient <WHO>] [--org <ORG>] [--forget]` | remove sign-ins; `--forget` also the client credentials and settings |
-| `kp patients list [--status] [--org <ORG>]` | the signed-in members (`patient-list/v1`); `--status` reads each sign-in |
+| `kp patients list [--status] [--org <ORG>]` | the signed-in members (`patient-list/v1`); `--status` reads each sign-in: `usable`, `refused`, and `error` and `remedy` for one that does not read |
 | `kp records export --ndjson\|-o <DIR> [--since <DATE>]` | the member's records as `records-stream/v1`; `-o` for the sandbox only |
 | `kp api GET <PATH>` | one FHIR read as the member |
 | `kp config path\|show\|set\|unset` | `redirect_port` (default 7469), `fhir_base` (Kaiser's, or a test server on this machine for the sandbox) |
