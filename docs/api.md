@@ -198,9 +198,12 @@ Epic's EOB returns only what the organization has configured.
 ### The test
 
 Run once `mychart` has a production client id that Kaiser's Northwest
-authorization server accepts (blocker 60df08b7). A member signs in through
-`mychart` at Kaiser Permanente - Northwest. Then one read, whose output is
-statuses and counts only:
+authorization server accepts (the authorize-URL check above). A member signs
+in through `mychart` at Kaiser Permanente - Northwest. Then one read, whose
+output is statuses and counts only. The commands are
+[`mychart`](https://github.com/piekstra/mychart-cli)'s (v0.2.0 or later:
+`patients list` prints `patient-list/v1`, `api GET` one FHIR read as the
+signed-in patient, and a refused read exits 3), not `kp`'s:
 
 ```sh
 p=$(mychart patients list --json | jq -r '.items[] | select(.label=="adult1") | .id')
@@ -311,7 +314,7 @@ Kaiser "recommend[s] that your application includes a clear privacy policy"
   of information obtained through them; Kaiser disclaims all warranties and
   liability.
 
-## Sources (read 2026-11-12)
+## Sources (read 2026-11-12 unless dated)
 
 - Kaiser developer portal: `https://developer.kp.org/#/home`, the API catalog
   `https://developer.kp.org/#/apis` and its data
