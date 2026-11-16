@@ -166,20 +166,9 @@ pub fn references(r: &RawResource, base: &str, out: &mut BTreeSet<(String, Strin
 }
 
 fn parse_reference(reference: &str, base: &str) -> Option<(String, String)> {
-    let relative = if reference.contains("://") {
-        reference.strip_prefix(base)?.strip_prefix('/')?
-    } else {
-        reference
-    };
-    let mut parts = relative.split('/');
-    let (resource_type, id) = (parts.next()?, parts.next()?);
-    match parts.next() {
-        None | Some("_history") => {}
-        Some(_) => return None,
-    }
-    // pk-med-fhir's rule, so a read never refuses an id this let through.
-    (REFERENCED.contains(&resource_type) && pk_med_fhir::is_id(id))
-        .then(|| (resource_type.to_string(), id.to_string()))
+    pk_med_fhir::ReferenceTarget::parse(reference)
+        .filter(|t| t.is_under(base) && REFERENCED.contains(&t.resource_type))
+        .map(|t| (t.resource_type.to_string(), t.id.to_string()))
 }
 
 #[cfg(test)]
@@ -215,6 +204,25 @@ mod tests {
                 "Patient/pat-0001",
                 "Practitioner/prac-0001",
             ]
+        );
+    }
+
+    #[test]
+    fn an_absolute_reference_on_this_base_is_read_in_any_host_case() {
+        // BASE with its scheme and host in capitals; the path keeps its case.
+        for reference in [
+            "HTTPS://FHIR.EXAMPLE.ORG/r4/Location/loc-0002",
+            "https://fhir.example.org/r4/Location/loc-0002",
+        ] {
+            assert_eq!(
+                parse_reference(reference, &format!("{BASE}/")),
+                Some(("Location".into(), "loc-0002".into())),
+                "{reference}"
+            );
+        }
+        assert_eq!(
+            parse_reference(&format!("{BASE}x/Location/loc-0002"), BASE),
+            None
         );
     }
 

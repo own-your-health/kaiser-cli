@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.3 — 2026-11-16
+
+- `records export` follows an absolute reference on Kaiser's base however
+  the scheme and host are capitalized and whether or not the base ends in
+  `/`. Reading references is medical-common's `ReferenceTarget` now, not
+  kp's own parser.
+- On medical-common v0.4.5 (cli-common v0.31.1, as before).
+
 ## v0.1.2 — 2026-11-16
 
 - `records export` reads a resource a claim names by an id longer than FHIR
