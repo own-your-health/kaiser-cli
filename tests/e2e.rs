@@ -295,7 +295,7 @@ fn a_reference_fhir_does_not_allow_is_a_skip_that_never_names_it() {
     let out = dir.path().join("out");
     let (counts, skipped) = export(&ctx, &out, None);
     assert_eq!(counts["ExplanationOfBenefit"], 1);
-    assert_eq!(skipped, ["upstream Practitioner"]);
+    assert_eq!(skipped, ["invalid_reference Practitioner"]);
     let written = std::fs::read_to_string(out.join("records.ndjson")).unwrap();
     let trailer = written.lines().last().unwrap();
     assert!(!trailer.contains("not a fhir id"), "{trailer}");

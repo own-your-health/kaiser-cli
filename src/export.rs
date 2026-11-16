@@ -17,7 +17,7 @@ use std::io::Write;
 
 use pk_cli_core::transport::Transport;
 use pk_cli_core::{block_on, CliError, Reason};
-use pk_med_fhir::{is_id, normalize_base, FhirClient, RawResource, ReferenceTarget};
+use pk_med_fhir::{is_id, FhirClient, RawResource, ReferenceTarget};
 use pk_med_records::stream::skip;
 use pk_med_records::{RecordsWriter, Skip};
 use serde_json::Value;
@@ -124,7 +124,7 @@ pub fn run<T: Transport, W: Write>(
         w.skip(Skip::resource(
             resource_type.as_str(),
             "",
-            skip::UPSTREAM,
+            skip::INVALID_REFERENCE,
             reason.as_str(),
         ));
     }
@@ -191,9 +191,7 @@ fn reference_into(reference: &str, base: &str, out: &mut Wanted) {
                 .insert((t.resource_type.to_string(), t.id.to_string()));
         }
         Ok(_) => {}
-        Err(refused)
-            if REFERENCED.contains(&refused.resource_type) && on_this_server(reference, base) =>
-        {
+        Err(refused) if refused.is_under(base) && REFERENCED.contains(&refused.resource_type) => {
             if is_id(refused.id) {
                 // Only the `_history` version is refused; kp reads the
                 // current version of every reference anyway.
@@ -206,13 +204,6 @@ fn reference_into(reference: &str, base: &str, out: &mut Wanted) {
         }
         Err(_) => {}
     }
-}
-
-/// Whether a reference `ReferenceTarget::read` refused is relative, or
-/// absolute under `base` (compared as [`normalize_base`] spells both).
-fn on_this_server(reference: &str, base: &str) -> bool {
-    !reference.contains("://")
-        || normalize_base(reference).starts_with(&format!("{}/", normalize_base(base)))
 }
 
 /// The one read a single reference asks for, if any (for the tests).
