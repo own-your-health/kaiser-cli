@@ -167,10 +167,13 @@ pub fn sign_in_again(e: CliError, context: &Context) -> CliError {
 /// An error as one line for stderr, its remedy after it, for a command
 /// whose stdout already carries its output.
 pub fn report(e: &CliError) {
-    match e.remedy() {
-        Some(remedy) => eprintln!("error: {}; {remedy}", e.message()),
-        None => eprintln!("error: {e}"),
-    }
+    eprintln!("{}", report_line(e));
+}
+
+/// cli-common's own spelling, `message — remedy`, as every other error
+/// prints, so a caller (medrec) reads the remedy the same way from both.
+fn report_line(e: &CliError) -> String {
+    format!("error: {e}")
 }
 
 pub fn credential_store() -> CredentialStore {
@@ -189,4 +192,24 @@ pub fn transport() -> Result<BlockingTransport, CliError> {
 /// RFC 3339 for Unix seconds.
 pub fn rfc3339(secs: u64) -> String {
     pk_cli_core::dates::fmt_rfc3339(secs as i64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_reported_error_puts_its_remedy_after_an_em_dash() {
+        let e = CliError::Auth("the sign-in was refused".into())
+            .with_remedy("run `kp auth login --org sandbox --label adult1`");
+        assert_eq!(
+            report_line(&e),
+            "error: the sign-in was refused \u{2014} run `kp auth login --org sandbox --label adult1`"
+        );
+        let plain = CliError::Upstream("Kaiser answered 503".into());
+        assert_eq!(
+            report_line(&plain),
+            "error: network/upstream error: Kaiser answered 503"
+        );
+    }
 }

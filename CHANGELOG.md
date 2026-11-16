@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.1.5 — 2026-11-16
+
+- A reference on Kaiser's server whose id FHIR does not allow is skipped
+  with medical-common's shared code `invalid_reference`, as `mychart` does,
+  not `upstream`: it is the server's own data, which asking again does not
+  change. Whether it is on Kaiser's server is medical-common's
+  `RefusedReference::is_under`.
+- An error that ends `records export` after the stream began is printed as
+  every other error is, `error: <what> — <remedy>`, not with `;` before the
+  remedy, so `medrec import --from kp` finds kp's command either way.
+- On medical-common v0.4.8 (cli-common v0.31.1, as before).
+
 ## v0.1.4 — 2026-11-16
 
 - `records export` lists a reference on Kaiser's server whose id FHIR does
