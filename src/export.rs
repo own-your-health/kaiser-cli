@@ -9,8 +9,9 @@
 //!    Kaiser's guide serves Coverage, Location, Organization, Patient and
 //!    Practitioner by the ids an EOB references.
 //!
-//! A refused or failed search or read is a [`Skip`]; the export stops only
-//! when the sign-in, the network or the output fails.
+//! A refused or failed search or read is a [`Skip`], and so is what a search's
+//! answer says it left out; the export stops only when the sign-in, the
+//! network or the output fails.
 
 use std::collections::BTreeSet;
 use std::io::Write;
@@ -99,6 +100,11 @@ pub fn run<T: Transport, W: Write>(
                 for r in found.resources.iter().chain(&found.included) {
                     w.resource(r)?;
                     references(r, &base, &mut wanted);
+                }
+                // What the server says it left out: the rest of the results
+                // stay, and each distinct line is a skip (medical-common §1.4).
+                for line in found.withheld() {
+                    w.skip(Skip::search(label.as_str(), skip::FORBIDDEN, line));
                 }
                 if found.truncated {
                     w.skip(Skip::search(

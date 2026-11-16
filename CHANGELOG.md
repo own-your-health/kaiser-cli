@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.1.6 — 2026-11-16
+
+- A search whose answer says it left results out (an `OperationOutcome`
+  issue coded `suppressed`, as Epic sends for a sub-resource the app may not
+  read) keeps the results it sent and lists a `forbidden` skip per distinct
+  line in the trailer. Before, kp read no outcomes, so such a gap was
+  silent.
+- docs/api.md: Kaiser's Patient Access API runs on Smile CDR, and its
+  CapabilityStatement offers a `patient` search for each type kp searches.
+- On medical-common v0.4.9 (cli-common v0.31.1, as before).
+
 ## v0.1.5 — 2026-11-16
 
 - A reference on Kaiser's server whose id FHIR does not allow is skipped
