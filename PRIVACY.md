@@ -21,14 +21,15 @@ changes anything at Kaiser.
 
 ## Where the data goes
 
-Only to the member's own computer.
+kp writes it only to files on the member's own computer.
 
 - kp sends no record, and nothing about one, to its authors or to any
   other party. It has no server, no analytics, no telemetry, no crash
   reporting and no advertising.
 - What kp downloads is written to the member's standard output or to a file
-  the member names, normally piped into the member's own encrypted records
-  store.
+  the member names. Normally that output goes straight into another program
+  the member runs, such as `medrec import`, and where that program keeps
+  records is the member's choice and that program's policy, not kp's.
 - The member's sign-in tokens and the app's Kaiser client id and secret are
   kept in the operating system's credential store (the macOS Keychain),
   readable only by the member's account. They are never printed, logged or

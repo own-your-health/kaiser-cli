@@ -166,20 +166,9 @@ pub fn references(r: &RawResource, base: &str, out: &mut BTreeSet<(String, Strin
 }
 
 fn parse_reference(reference: &str, base: &str) -> Option<(String, String)> {
-    let relative = if reference.contains("://") {
-        reference.strip_prefix(base)?.strip_prefix('/')?
-    } else {
-        reference
-    };
-    let mut parts = relative.split('/');
-    let (resource_type, id) = (parts.next()?, parts.next()?);
-    match parts.next() {
-        None | Some("_history") => {}
-        Some(_) => return None,
-    }
-    // pk-med-fhir's rule, so a read never refuses an id this let through.
-    (REFERENCED.contains(&resource_type) && pk_med_fhir::is_id(id))
-        .then(|| (resource_type.to_string(), id.to_string()))
+    pk_med_fhir::ReferenceTarget::parse(reference)
+        .filter(|t| t.is_under(base) && REFERENCED.contains(&t.resource_type))
+        .map(|t| (t.resource_type.to_string(), t.id.to_string()))
 }
 
 #[cfg(test)]
@@ -216,6 +205,34 @@ mod tests {
                 "Practitioner/prac-0001",
             ]
         );
+    }
+
+    #[test]
+    fn an_absolute_reference_on_this_base_is_read_in_any_host_case() {
+        // The scheme and host compare in any case, on the reference and on the
+        // base, and a trailing `/` on the base is ignored. The path keeps its
+        // case.
+        let lower = "https://fhir.example.org/r4";
+        let upper = "HTTPS://FHIR.EXAMPLE.ORG/r4";
+        for written in [lower, upper] {
+            for base in [lower, upper]
+                .map(String::from)
+                .into_iter()
+                .flat_map(|b| [format!("{b}/"), b])
+            {
+                assert_eq!(
+                    parse_reference(&format!("{written}/Location/loc-0002"), &base),
+                    Some(("Location".into(), "loc-0002".into())),
+                    "{written} on {base}"
+                );
+            }
+        }
+        for other in [
+            "https://fhir.example.org/R4/Location/loc-0002",
+            "https://fhir.example.org/r4x/Location/loc-0002",
+        ] {
+            assert_eq!(parse_reference(other, lower), None, "{other}");
+        }
     }
 
     #[test]
