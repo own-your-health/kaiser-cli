@@ -177,12 +177,8 @@ fn parse_reference(reference: &str, base: &str) -> Option<(String, String)> {
         None | Some("_history") => {}
         Some(_) => return None,
     }
-    let id_ok = !id.is_empty()
-        && id.len() <= 64
-        && id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.');
-    (REFERENCED.contains(&resource_type) && id_ok)
+    // pk-med-fhir's rule, so a read never refuses an id this let through.
+    (REFERENCED.contains(&resource_type) && pk_med_fhir::is_id(id))
         .then(|| (resource_type.to_string(), id.to_string()))
 }
 
@@ -220,6 +216,21 @@ mod tests {
                 "Practitioner/prac-0001",
             ]
         );
+    }
+
+    #[test]
+    fn a_reference_id_is_read_up_to_pk_med_fhirs_limit() {
+        let max = pk_med_fhir::MAX_ID_LEN;
+        for (id, read) in [
+            ("e".repeat(65), true),
+            ("A1b2-C3d4.".repeat(8), true),
+            ("x".repeat(max), true),
+            ("x".repeat(max + 1), false),
+            ("..".to_string(), false),
+        ] {
+            let got = parse_reference(&format!("Practitioner/{id}"), BASE);
+            assert_eq!(got.is_some(), read, "{} characters", id.len());
+        }
     }
 
     #[test]
