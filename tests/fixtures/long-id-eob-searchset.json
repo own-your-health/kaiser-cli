@@ -1,0 +1,19 @@
+{
+  "resourceType": "Bundle",
+  "type": "searchset",
+  "total": 1,
+  "entry": [
+    {
+      "fullUrl": "ExplanationOfBenefit/eob-long-ref-1",
+      "resource": {
+        "resourceType": "ExplanationOfBenefit",
+        "id": "eob-long-ref-1",
+        "status": "active",
+        "use": "claim",
+        "patient": { "reference": "Patient/PATIENT_ID" },
+        "provider": { "reference": "Practitioner/eSynthetic-unconstrained-practitioner-id-0123456789-abcdefghijklmnopqrstuvwxyz.ABCDEF" }
+      },
+      "search": { "mode": "match" }
+    }
+  ]
+}

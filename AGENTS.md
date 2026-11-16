@@ -94,7 +94,8 @@ Medical records are the most sensitive data a household has.
   and failing searches as skips, a refused renewal (exit 3 with kp's
   remedy, `refused_at` recorded, the last complete export kept), a
   declined consent, `-o` refused for a production member, two members and
-  logout, `set-credential`.
+  logout, `set-credential`, a reference whose id is longer than 64
+  characters (`tests/fixtures/`, invented).
 - `tests/no_personal_data.rs`: personal-data shapes in tracked files.
 - Unit tests in each module.
 

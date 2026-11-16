@@ -255,6 +255,34 @@ fn a_refused_search_is_a_skip_not_a_stop() {
 }
 
 #[test]
+fn a_reference_longer_than_64_characters_is_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = MockServer::start();
+    let ctx = ctx(dir.path(), &mock);
+    login(&ctx, "adult1");
+    let practitioner = include_str!("fixtures/long-id-practitioner.json");
+    let id = serde_json::from_str::<serde_json::Value>(practitioner).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(id.len() > 64, "the fixture's id is {} characters", id.len());
+    let searchset =
+        include_str!("fixtures/long-id-eob-searchset.json").replace("PATIENT_ID", PATIENT_ID);
+    mock.fail(Fault::new("GET", "/fhir/ExplanationOfBenefit", 200, searchset).times(5));
+    let path = format!("/fhir/Practitioner/{id}");
+    mock.fail(Fault::new("GET", &path, 200, practitioner).times(5));
+
+    let out = dir.path().join("out");
+    let (counts, skipped) = export(&ctx, &out, None);
+    assert!(skipped.is_empty(), "{skipped:?}");
+    assert_eq!(counts["ExplanationOfBenefit"], 1);
+    // The long one, and the mock's own, which its other resources name.
+    assert_eq!(counts["Practitioner"], 2);
+    let seen: Vec<String> = mock.requests().iter().map(|r| r.target.clone()).collect();
+    assert!(seen.iter().any(|t| t == &path), "{seen:?}");
+}
+
+#[test]
 fn a_production_member_is_not_written_to_a_plain_file() {
     let dir = tempfile::tempdir().unwrap();
     let mock = MockServer::start();

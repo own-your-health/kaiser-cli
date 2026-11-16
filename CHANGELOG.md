@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.2 — 2026-11-16
+
+- `records export` reads a resource a claim names by an id longer than FHIR
+  R4's 64 characters, up to 256, as Epic's unconstrained ids are. Before,
+  kp left such a reference out of the export without saying so.
+- On medical-common v0.4.3 (cli-common v0.31.1, as before). Sign-ins stored
+  by v0.1.x still read.
+
 ## v0.1.1 — 2026-11-12
 
 - With no member signed in, the remedy names the organization asked for:
