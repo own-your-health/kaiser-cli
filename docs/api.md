@@ -33,21 +33,24 @@ member.
    v0.2.1 and later search for them, and a refused search is a skip
    ([Claims through Epic](#claims-through-epic)).
 
-Two questions stay open until `mychart` has a production client id. The first
-is whether Epic's automatic client id distribution has reached Kaiser. Epic distributes a patient-facing USCDI app's
-client id to every community member "on a rolling 12-hour cycle" unless the
-member "has disabled auto-download functionality"; Kaiser's documentation does
-not say. One GET of a Kaiser region's authorize URL answers it without
-signing in, with `response_type=code`, the production `client_id` and the
-https redirect mychart registered for production
+Epic distributes a patient-facing USCDI app's client id to every community
+member "on a rolling 12-hour cycle" unless the member "has disabled
+auto-download functionality"; Kaiser's documentation does not say whether it
+has. One GET of a Kaiser region's authorize URL answers it without signing
+in, with `response_type=code`, the production `client_id` and the https
+redirect mychart registered for production
 (`https://piekstra.github.io/mychart-cli/callback`), not following
-redirects. Epic redirects to the page that begins its sign-in,
-`…/Authentication/OAuth/Start`, with status 302. An `error=` in that
-redirect's query means
-Epic does not know the client id or the redirect there; no `error=` means it
-does. Never print the client id while running it. The second is whether Kaiser's Epic returns
-`ExplanationOfBenefit` to a member's token
-([Claims through Epic](#claims-through-epic)).
+redirects (`mychart auth probe --org <id>` makes it). A known client is
+redirected to the page that begins Epic's sign-in,
+`…/Authentication/OAuth/Start`, with status 302 and no `error=` in the
+query. An unknown one gets a 200 "OAuth2 Error" page and no redirect (a
+dummy client id at Northwest), or a redirect with `error=`. Never print the
+client id while running it. On 2026-11-16 `mychart`'s production client id
+was known at Northwest, Mid-Atlantic, Georgia, Northern California and
+Southern California, and not yet at Colorado, Hawaii and Washington.
+
+Whether Kaiser's Epic returns `ExplanationOfBenefit` to a member's token is
+still open ([Claims through Epic](#claims-through-epic)).
 
 ## Clinical: Kaiser's Epic endpoints
 
@@ -136,6 +139,50 @@ SW Washington, base 190) and Washington (the former Group Health, base
 organizations even though both serve Washington state. Northwest's member
 portal is Epic MyChart (`https://healthy.kaiserpermanente.org/mychartnw/`).
 
+### Sign-in goes through kp.org
+
+Kaiser's MyChart has no login page of its own. Epic's authorize step hands
+the member to MyChart's Start page, and Kaiser's Start page fails without a
+kp.org session. Checked at Northwest on 2026-11-17, without credentials
+except the first row, which a browser sign-in reached:
+
+| Request | Answer |
+|---|---|
+| `https://fhir.kp.org/KPPolarisPortal/esb-envlbl/190/oauth2/authorize`, a client id Epic knows | 302 to `https://healthy.kaiserpermanente.org/fhirnw/Authentication/OAuth/Start` |
+| The same, a dummy client id | 200, "OAuth2 Error" |
+| `/fhirnw/Authentication/OAuth/Start`, with or without OAuth parameters, no kp.org session | 500, Kaiser's "Page Not Found" page |
+| `/fhirnw/Authentication/Login`, MyChart's own login | 410 |
+| A path that does not exist | 410 |
+
+Epic's sandbox serves MyChart's login form at that same Start page when no
+session exists. At Kaiser a browser that went straight to authorize ended on
+the "Page Not Found" page, so the member signs in at kp.org first, in the
+same browser. That order has not been tried yet. Every region authorizes
+under `KPPolarisPortal`, so the others probably behave the same.
+
+kp.org's own sign-in:
+
+- `https://healthy.kaiserpermanente.org/sign-on` redirects to
+  `https://identityauth.kaiserpermanente.org/as/authorization.oauth2`
+  (PingFederate, behind PingAccess and an F5 BIG-IP). It is a plain HTML
+  form: `pf.username` and `pf.pass`, posted to
+  `/as/<flow>/resume/as/authorization.ping`.
+- Every sign-in sends a one-time passcode to the email or mobile number in
+  the member's notification preferences. There is no authenticator (TOTP)
+  option.
+- The page fingerprints the device for PingOne Risk Management
+  (fingerprintjs2, written to `pingone.risk.device.profile*` cookies).
+  reCAPTCHA is in the page but switched off.
+- kp's Patient Access authorize step redirects to a second PingFederate
+  ([Claims: Kaiser's Patient Access API](#claims-kaisers-patient-access-api)).
+- kp.org's Terms & Conditions (last updated September 2026, version 2)
+  prohibit using any "robot", "spider" or "other automatic device, program,
+  algorithm or methodology, to (1) access, acquire, copy or monitor any
+  portion of the Site". For a violation, "Kaiser Permanente expressly
+  reserves the right, in its sole discretion, to terminate a user's access"
+  to the Site. `kp` opens the member's browser for the sign-in and does not
+  fill the form.
+
 ## Imaging
 
 | Route | What it gives | DICOM |
@@ -211,7 +258,10 @@ in through `mychart` v0.4.0 or later at Kaiser Permanente - Northwest
 production, and mychart sends the page from v0.4.0. The read names the
 organization too: the same label may be signed in at another organization,
 and `--patient adult1` alone is then ambiguous (exit 4). One `mychart auth
-login` runs at a time, since the https page forwards to one loopback port. Then one read, whose
+login` runs at a time, since the https page forwards to one loopback port.
+The member signs in at kp.org in the same browser before that sign-in
+([Sign-in goes through kp.org](#sign-in-goes-through-kporg)); a sign-in
+without it ends on Kaiser's "Page Not Found" page. Then one read, whose
 output is statuses and counts only. The commands are
 [`mychart`](https://github.com/piekstra/mychart-cli)'s (v0.2.0 or later:
 `patients list` prints `patient-list/v1`, `api GET` one FHIR read as the
@@ -256,7 +306,7 @@ Guide" (August 2023, 23 pages) and the live CapabilityStatement.
 | Item | Value |
 |---|---|
 | FHIR base | `https://kpx-service-bus.kp.org/service/cdo/siae/healthplankpxv1rc/FHIR/api` (the guide's search table also writes `[base]/HPEOB/ExplanationOfBenefit`; its Postman example omits `HPEOB`) |
-| Authorize | `https://kpx-service-bus.kp.org/service/kpx/v1/oauth2/authorize` |
+| Authorize | `https://kpx-service-bus.kp.org/service/kpx/v1/oauth2/authorize`, which redirects to PingFederate at `https://pfam.kp.org/as/authorization.oauth2`; that answers an unregistered client id with 400 "Invalid client_id" (2026-11-17) |
 | Token | `https://kpx-service-bus.kp.org/service/kpx/v1/oauth2/token` |
 | Discovery | No `.well-known/smart-configuration` (Apigee answers 400 "Unauthorized", `AMP-Security-134`); the OAuth URLs are only in the CapabilityStatement's `oauth-uris` extension |
 | Client | Confidential, "Symmetric authentication approach": client id and secret, sent as an HTTP Basic header |
@@ -362,6 +412,12 @@ Kaiser "recommend[s] that your application includes a clear privacy policy"
   `https://healthy.kaiserpermanente.org/northern-california/pages/technical-information#api-developer-portal`
 - Kaiser Third-Party App Privacy:
   `https://healthy.kaiserpermanente.org/support/health-record-access-update/third-party-app-privacy`
+- kp.org Terms & Conditions (read 2026-11-17):
+  `https://healthy.kaiserpermanente.org/termsconditions`
+- kp.org multifactor authentication (read 2026-11-17):
+  `https://healthy.kaiserpermanente.org/pages/online-security/multifactor-authentication`
+- kp.org sign-in (read 2026-11-17): `https://healthy.kaiserpermanente.org/sign-on`
+  and the scripts it loads
 - Kaiser Act for a Family Member:
   `https://healthy.kaiserpermanente.org/northern-california/support/act-for-a-family-member`
 - Kaiser records and imaging requests, per region:
