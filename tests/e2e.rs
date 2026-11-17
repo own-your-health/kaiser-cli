@@ -18,9 +18,7 @@ use pk_med_fhir::test_util::{http_get, Fault, MockServer, CLIENT_ID, CLIENT_SECR
 use pk_med_records::{Item, RecordsReader};
 use pk_med_smart::SessionStore;
 
-use kp::cli::{
-    AuthCmd, ExportArgs, LoginArgs, LogoutArgs, PatientArgs, RecordsCmd, SetCredentialArgs,
-};
+use kp::cli::{AuthCmd, ExportArgs, LoginArgs, LogoutArgs, PatientArgs, RecordsCmd};
 use kp::commands::{self, Ctx};
 use kp::config::{Config, ProfileSettings};
 use kp::credentials::{self, ClientCredentials};
@@ -535,17 +533,16 @@ fn set_credential_then_status_reads_both() {
     let dir = tempfile::tempdir().unwrap();
     let mock = MockServer::start();
     let ctx = ctx(dir.path(), &mock);
-    std::env::set_var("KP_E2E_PAIR", "client-one:secret-one");
-    commands::auth::run(
+    // The pair goes in as `set-credential` reads it, without setting a
+    // variable while other tests run.
+    commands::auth::store_pair(
         &ctx,
-        &AuthCmd::SetCredential(SetCredentialArgs {
-            source: pk_cli_secrets::SecretSourceArgs {
-                stdin: false,
-                from_env: Some("KP_E2E_PAIR".into()),
-            },
-            sandbox: false,
-            overwrite: false,
-        }),
+        Environment::Production,
+        false,
+        Some(
+            ClientCredentials::parse_pair(&pk_cli_secrets::Secret::new("client-one:secret-one"))
+                .unwrap(),
+        ),
     )
     .unwrap();
     let production = credentials::read_client(&ctx.vault, Environment::Production)
