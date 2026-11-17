@@ -16,13 +16,13 @@ kp's (`docs/api.md`, Route).
 |---|---|
 | `src/main.rs` | parsing, dispatch, `info`, exit codes |
 | `src/cli.rs` | the clap tree |
-| `src/commands/*.rs` | one module per command group; `Ctx` (config, vault, refresh lock, browser) in `mod.rs` |
+| `src/commands/*.rs` | one module per command group (`profiles.rs`: `list`, `add`, `remove`, `migrate`); `Ctx` in `mod.rs`: the config and its owner-only writes, the `--profile` resolution, the vault and the v0.1.x Keychain, the refresh lock, the sign-in window and `forget_browser` |
 | `src/kaiser.rs` | the two organizations (the health plan and its sandbox): FHIR base, regions, scopes, `--org` resolution and search, `KaiserQuirks` |
-| `src/session.rs` | a signed-in member (`Context`), pk-med-smart's sessions in the Keychain (`Sessions`), the live token with renewal (`Live`) |
+| `src/session.rs` | a signed-in member (`Context`, a profile's grant), picking one, the live token with renewal over the profile's sessions in the vault (`ProfileSessions`, `Live`) |
 | `src/export.rs` | what `records export` pulls, in order, and which failures skip rather than stop |
-| `src/config.rs` | non-secret settings: redirect port, FHIR base override |
-| `src/credentials.rs` | the Keychain behind a trait (`Vault`, `MemoryVault` in tests), the app's client id and secret |
-| `src/state.rs` | `state.json`: which Keychain items exist and who is signed in, so a logged-out command opens none |
+| `src/config.rs` | the config: redirect port, FHIR base override, the profiles and each one's grants (`ProfileSettings`) |
+| `src/credentials.rs` | the app's client id and secret: the vault entries `_client/<environment>`, and v0.1.x's account names |
+| `src/state.rs` | kp v0.1.x's `state.json`, the list of its Keychain items, which `profiles migrate` and `auth logout --forget` read and remove |
 | `src/fsutil.rs` | owner-only files written whole |
 | `examples/mock_kaiser.rs` | `make mock`: medical-common's mock SMART + FHIR server, for dogfooding |
 | `docs/api.md` | Kaiser's API, quoted, with sources and traps; read before changing auth or export |
@@ -122,7 +122,9 @@ Medical records are the most sensitive data a household has.
   logout, `set-credential`, a reference whose id is longer than 64
   characters and one FHIR does not allow (`tests/fixtures/`, invented), and
   kp's remedy for a missing, unreadable or newer-format sign-in, and a
-  search whose answer says it left results out (`MockServer::withhold`).
+  search whose answer says it left results out (`MockServer::withhold`),
+  a sign-in that finishes after Chrome fails to open, and `--forget` past
+  a v0.1.x `state.json` that does not read.
 - `tests/no_personal_data.rs`: personal-data shapes in tracked files.
 - Unit tests in each module.
 

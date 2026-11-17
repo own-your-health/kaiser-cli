@@ -18,6 +18,15 @@ fn main() {
 }
 
 fn run(cli: &Cli) -> Result<(), CliError> {
+    if cli.profile.is_some() && !cli.command.uses_profile() {
+        return Err(CliError::Usage(
+            "this command does not run as a profile, so it takes no --profile".into(),
+        )
+        .with_remedy(match &cli.command {
+            Command::Profiles(_) => "name the profile as the argument: `kp profiles remove <NAME>`",
+            _ => "leave out --profile",
+        }));
+    }
     let ctx = Ctx::for_binary(cli.common.clone(), cli.config.clone(), cli.profile.clone())?;
     match &cli.command {
         Command::Orgs(cmd) => commands::orgs::run(&ctx, cmd),

@@ -31,19 +31,28 @@ kp writes it only to files on the member's own computer.
   the member runs, such as `medrec import`, and where that program keeps
   records is the member's choice and that program's policy, not kp's.
 - The member's sign-in tokens and the app's Kaiser client id and secret are
+  kept in kp's vault: files under `~/.config/kp/vault`, encrypted with a key
   kept in the operating system's credential store (the macOS Keychain),
-  readable only by the member's account. They are never printed, logged or
-  written to a file.
-- kp keeps a small settings file and a list of which sign-ins it holds,
-  readable only by the member, under `~/.config/kp`. Neither holds a record.
+  readable only by the member's account. They are never printed or logged,
+  and never written to a file unencrypted.
+- kp keeps a settings file, readable only by the member, under
+  `~/.config/kp`: its profiles, one per kp.org account, and for each the
+  sign-ins it holds (each member's label and Kaiser patient id). It holds
+  no record.
+- Each profile signs in in its own Chrome profile (on macOS under
+  `~/Library/Application Support/piekstra.kp`), which keeps that kp.org
+  account's cookies until the profile is removed.
 
 kp connects to Kaiser's API servers, and to GitHub only when the member
 asks it to update itself.
 
 ## Stopping access
 
-`kp auth logout` removes the sign-ins kp holds; `kp auth logout --forget`
-also removes the app's client credentials and its settings. To revoke kp's
+`kp auth logout --profile <NAME>` removes the sign-ins that profile holds.
+`kp profiles remove <NAME>` also removes its settings and its Chrome profile.
+`kp auth logout --profile <NAME> --forget`, once no other profile holds a
+sign-in, also removes the app's client credentials and the vault's key,
+leaving kp nothing in the Keychain. To revoke kp's
 access at Kaiser, the member removes the app on kp.org under Profile and
 Preferences, Data sharing & authorization, Manage access to health plan
 information.

@@ -161,10 +161,11 @@ fn a_login_command_needs_a_configured_profile_and_never_picks_one() {
         .stderr(predicate::str::contains("kp profiles add <NAME>"));
     let v = stdout_json(kp(&home).args(["profiles", "list", "--json"]));
     assert_eq!(v, json!({"schema": "profile-list/v1", "profiles": []}));
-    kp(&home)
-        .args(["profiles", "add", "adult1"])
-        .assert()
-        .success();
+    let v = stdout_json(kp(&home).args(["profiles", "add", "adult1", "--json"]));
+    assert_eq!(
+        v,
+        json!({"schema": "profile-add/v1", "profile": "adult1", "added": true})
+    );
     // One configured is still not picked for the caller.
     for args in [
         vec!["auth", "status"],
@@ -185,6 +186,22 @@ fn a_login_command_needs_a_configured_profile_and_never_picks_one() {
         .assert()
         .code(2)
         .stderr(predicate::str::contains("kp profiles add adult2"));
+    // A command that does not run as a profile refuses --profile, so
+    // `profiles remove` is never told two names.
+    for args in [
+        vec!["orgs", "list"],
+        vec!["config", "show"],
+        vec!["info"],
+        vec!["auth", "set-credential", "--from-env", "KP_TEST_UNSET_VAR"],
+        vec!["profiles", "remove", "adult1", "--force"],
+    ] {
+        kp(&home)
+            .args(&args)
+            .args(["--profile", "adult1"])
+            .assert()
+            .code(2)
+            .stderr(predicate::str::contains("takes no --profile"));
+    }
     for bad in ["Adult1", "_client", "a/b"] {
         kp(&home).args(["profiles", "add", bad]).assert().code(2);
     }
@@ -216,10 +233,20 @@ fn nothing_stored_reads_as_such_without_the_keychain() {
         .assert()
         .success()
         .stdout(predicate::str::contains("not stored"));
-    kp(&home)
-        .args(["auth", "logout", "--profile", "adult1", "--json"])
-        .assert()
-        .success();
+    let v = stdout_json(kp(&home).args(["auth", "logout", "--profile", "adult1", "--json"]));
+    assert_eq!(
+        v,
+        json!({
+            "schema": "auth-logout/v1",
+            "profile": "adult1",
+            "removed": [],
+            "signed_out": [],
+            "shared_kept_for": [],
+            "legacy_removed": 0,
+            "state_cleared": false,
+            "vault_cleared": false,
+        })
+    );
     let v = stdout_json(kp(&home).args(["patients", "list", "--profile", "adult1", "--json"]));
     assert_eq!(v["schema"], "patient-list/v1");
     assert_eq!(v["items"], json!([]));
@@ -240,10 +267,11 @@ fn nothing_stored_reads_as_such_without_the_keychain() {
         .args(["profiles", "remove", "adult1", "--json"])
         .assert()
         .code(6);
-    kp(&home)
-        .args(["profiles", "remove", "adult1", "--force"])
-        .assert()
-        .success();
+    let v = stdout_json(kp(&home).args(["profiles", "remove", "adult1", "--force", "--json"]));
+    assert_eq!(v["schema"], "profile-remove/v1");
+    assert_eq!(v["profile"], "adult1");
+    assert_eq!(v["sign_ins_removed"], 0);
+    assert!(v["browser_profile_removed"].is_boolean());
     let v = stdout_json(kp(&home).args(["profiles", "list", "--json"]));
     assert_eq!(v["profiles"], json!([]));
     // Nothing was ever stored, so kp made no vault.

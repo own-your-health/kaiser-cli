@@ -39,15 +39,10 @@ fn list(ctx: &Ctx) -> Result<(), CliError> {
 }
 
 fn add(ctx: &Ctx, name: &str) -> Result<(), CliError> {
-    let name = ProfileName::parse(name)?;
-    let mut config = ctx.config()?;
-    let added = config.profiles.add(name.clone());
-    if added {
-        ctx.store.save(&config)?;
-    }
-    let done = json!({ "profile": name.as_str(), "added": added });
-    output::emit(ctx.json(), "profile-add", done, |_| {
-        if added {
+    let done = added(ctx, name)?;
+    let name = done["profile"].as_str().unwrap_or_default().to_string();
+    output::emit(ctx.json(), "profile-add", done.clone(), |_| {
+        if done["added"] == true {
             println!("Added profile {name}. Sign its members in with `{BIN} auth login --profile {name} --label <WHO>`.");
         } else {
             println!("Profile {name} is already configured.");
@@ -56,8 +51,35 @@ fn add(ctx: &Ctx, name: &str) -> Result<(), CliError> {
     Ok(())
 }
 
-/// Its sign-ins, its kept browser profile, then its config, after asking.
+/// `profile-add/v1`'s payload: `profile`, and `added`, false when it was
+/// already configured.
+fn added(ctx: &Ctx, name: &str) -> Result<Value, CliError> {
+    let name = ProfileName::parse(name)?;
+    let mut config = ctx.config()?;
+    let added = config.profiles.add(name.clone());
+    if added {
+        ctx.save_config(&config)?;
+    }
+    Ok(json!({ "profile": name.as_str(), "added": added }))
+}
+
 fn remove(ctx: &Ctx, name: &str, force: bool) -> Result<(), CliError> {
+    let done = removed(ctx, name, force)?;
+    output::emit(ctx.json(), "profile-remove", done.clone(), |_| {
+        println!(
+            "Removed profile {} and its {} sign-in(s).",
+            done["profile"].as_str().unwrap_or_default(),
+            done["sign_ins_removed"]
+        )
+    });
+    Ok(())
+}
+
+/// Its sign-ins, its kept browser profile, then its config, after asking.
+/// The config goes last, so a step that fails leaves the profile listed
+/// and running the command again finishes it. `profile-remove/v1`'s
+/// payload: `profile`, `sign_ins_removed`, `browser_profile_removed`.
+fn removed(ctx: &Ctx, name: &str, force: bool) -> Result<Value, CliError> {
     let config = ctx.config()?;
     // An unknown name is the same usage error `--profile` gives.
     let name = profile::resolve_from(Some(name), None, PROFILE_ENV, &config.profiles, BIN)?;
@@ -66,19 +88,32 @@ fn remove(ctx: &Ctx, name: &str, force: bool) -> Result<(), CliError> {
         force,
         &format!("Remove profile {name}, its sign-ins and its browser profile?"),
     )?;
+    let again = format!("run `{BIN} profiles remove {name} --force` again to finish");
     let sessions = ctx.sessions(&name);
-    let sign_ins = ctx.lock.forget(|| sessions.delete_all())?;
-    let browser_profile = (ctx.forget_browser)(&name)?;
+    let sign_ins = ctx
+        .lock
+        .forget(|| sessions.delete_all())
+        .map_err(|e| e.with_remedy(again.clone()))?;
+    let browser_profile = (ctx.forget_browser)(&name).map_err(|e| e.with_remedy(again))?;
     let mut config = ctx.config()?;
     config.profiles.remove(&name);
-    ctx.store.save(&config)?;
-    let done = json!({
+    ctx.save_config(&config)?;
+    Ok(json!({
         "profile": name.as_str(),
         "sign_ins_removed": sign_ins,
         "browser_profile_removed": browser_profile,
-    });
-    output::emit(ctx.json(), "profile-remove", done, |_| {
-        println!("Removed profile {name} and its {sign_ins} sign-in(s).")
+    }))
+}
+
+fn migrate(ctx: &Ctx, name: &str) -> Result<(), CliError> {
+    let done = migrated(ctx, name)?;
+    output::emit(ctx.json(), "profile-migrate", done.clone(), |_| {
+        println!(
+            "Profile {}: moved {} sign-in(s) and {} client registration(s) into kp's vault.",
+            done["profile"].as_str().unwrap_or_default(),
+            done["sessions"]["moved"],
+            done["clients"]["moved"]
+        )
     });
     Ok(())
 }
@@ -88,15 +123,19 @@ fn remove(ctx: &Ctx, name: &str, force: bool) -> Result<(), CliError> {
 /// `_client/<environment>` entries, the sign-ins into the profile with
 /// their rows as its grants. No network, no new approval. Each old item a
 /// newly built kp reads costs one Keychain dialog, once.
-fn migrate(ctx: &Ctx, name: &str) -> Result<(), CliError> {
+///
+/// The items move first and the config is written once, after: a move that
+/// fails leaves no profile behind, and `state.json`, still in place, lets a
+/// second run finish (a moved item is found in the vault and kept).
+/// `profile-migrate/v1`'s payload: `profile`, `added`, `grants`,
+/// `sessions` and `clients` (each `moved`, `kept`, `absent`),
+/// `state_cleared`.
+fn migrated(ctx: &Ctx, name: &str) -> Result<Value, CliError> {
     let name = ProfileName::parse(name)?;
     let state_file = ctx.state_file()?;
     let state = state_file.load()?;
-    let mut config = ctx.config()?;
-    let added = config.profiles.add(name.clone());
-    if added {
-        ctx.store.save(&config)?;
-    }
+    // The config must read before anything moves.
+    ctx.config()?;
     let pairs: Vec<(String, String)> = Environment::ALL
         .iter()
         .map(|e| (legacy_client_account(*e), client_entry(*e)))
@@ -114,28 +153,22 @@ fn migrate(ctx: &Ctx, name: &str) -> Result<(), CliError> {
         &ctx.lock,
     )?;
     let mut config = ctx.config()?;
+    let added = config.profiles.add(name.clone());
     let mut settings: ProfileSettings = config.profiles.settings(&name)?;
     for c in &state.contexts {
         settings.upsert(c.clone());
     }
     config.profiles.set_settings(&name, &settings)?;
-    ctx.store.save(&config)?;
+    ctx.save_config(&config)?;
     let state_cleared = state_file.clear()?;
-    let done = json!({
+    Ok(json!({
         "profile": name.as_str(),
         "added": added,
         "grants": state.contexts.len(),
         "sessions": counts(&sessions),
         "clients": counts(&clients),
         "state_cleared": state_cleared,
-    });
-    output::emit(ctx.json(), "profile-migrate", done, |_| {
-        println!(
-            "Profile {name}: moved {} sign-in(s) and {} client registration(s) into kp's vault.",
-            sessions.moved, clients.moved
-        )
-    });
-    Ok(())
+    }))
 }
 
 fn counts(m: &Migration) -> Value {
@@ -206,7 +239,18 @@ mod tests {
             })
             .unwrap();
 
-        migrate(&ctx, "adult2").unwrap();
+        let done = migrated(&ctx, "adult2").unwrap();
+        assert_eq!(
+            done,
+            json!({
+                "profile": "adult2",
+                "added": true,
+                "grants": 1,
+                "sessions": {"moved": 1, "kept": 0, "absent": 0},
+                "clients": {"moved": 1, "kept": 0, "absent": 1},
+                "state_cleared": true,
+            })
+        );
 
         let adult2 = ProfileName::parse("adult2").unwrap();
         let config = ctx.config().unwrap();
@@ -237,7 +281,10 @@ mod tests {
         let session = pk_med_smart::decode_session(&legacy_session("pat-0001")).unwrap();
         ctx.sessions(&adult1).save(&session).unwrap();
         ctx.sessions(&adult2).save(&session).unwrap();
-        remove(&ctx, "adult1", true).unwrap();
+        assert_eq!(
+            removed(&ctx, "adult1", true).unwrap(),
+            json!({"profile": "adult1", "sign_ins_removed": 1, "browser_profile_removed": false})
+        );
         let config = ctx.config().unwrap();
         assert!(!config.profiles.contains(&adult1));
         assert!(config.profiles.contains(&adult2));
@@ -253,6 +300,70 @@ mod tests {
         // `--json` never asks, whatever stdin is.
         ctx.common.json = true;
         assert_eq!(remove(&ctx, "adult1", false).unwrap_err().exit_code(), 6);
+        assert!(ctx
+            .config()
+            .unwrap()
+            .profiles
+            .contains(&ProfileName::parse("adult1").unwrap()));
+    }
+
+    #[test]
+    fn add_says_whether_it_added() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ctx(dir.path());
+        assert_eq!(
+            added(&ctx, "adult2").unwrap(),
+            json!({"profile": "adult2", "added": true})
+        );
+        assert_eq!(added(&ctx, "adult2").unwrap()["added"], false);
+    }
+
+    /// A Keychain that refuses every read, as one whose dialog was denied.
+    struct Refusing;
+
+    impl KeyStore for Refusing {
+        fn get(&self, _: &str) -> Result<Option<Secret>, CliError> {
+            Err(CliError::Other("the Keychain refused".into()))
+        }
+        fn set(&self, _: &str, _: &Secret) -> Result<(), CliError> {
+            Err(CliError::Other("the Keychain refused".into()))
+        }
+        fn delete(&self, _: &str) -> Result<bool, CliError> {
+            Err(CliError::Other("the Keychain refused".into()))
+        }
+    }
+
+    #[test]
+    fn a_migrate_that_cannot_read_the_old_items_adds_no_profile_and_keeps_the_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx(dir.path());
+        ctx.legacy = Box::new(Refusing);
+        let state_file = ctx.state_file().unwrap();
+        state_file
+            .save(&State {
+                clients: vec![Environment::Sandbox],
+                contexts: vec![context("pat-0001")],
+            })
+            .unwrap();
+        assert!(migrated(&ctx, "adult2").is_err());
+        assert!(!ctx
+            .config()
+            .unwrap()
+            .profiles
+            .contains(&ProfileName::parse("adult2").unwrap()));
+        assert!(state_file.path().exists());
+    }
+
+    #[test]
+    fn a_remove_whose_browser_profile_stays_keeps_the_profile_and_says_to_run_it_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx(dir.path());
+        ctx.forget_browser = Box::new(|_| Err(CliError::Other("Chrome holds the profile".into())));
+        let err = removed(&ctx, "adult1", true).unwrap_err();
+        assert_eq!(
+            err.remedy(),
+            Some("run `kp profiles remove adult1 --force` again to finish")
+        );
         assert!(ctx
             .config()
             .unwrap()

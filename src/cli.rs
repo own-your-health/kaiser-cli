@@ -21,7 +21,9 @@ pub struct Cli {
 
     /// The login to use: one kp.org account, added with `kp profiles add`.
     /// Required by `auth login|status|logout`, `patients`, `records` and
-    /// `api`; `KP_PROFILE` when not given. There is no default.
+    /// `api`, and refused by every other command (`profiles remove` and
+    /// `profiles migrate` take the name as their argument); `KP_PROFILE`
+    /// when not given. There is no default.
     #[arg(long, global = true, value_name = "NAME")]
     pub profile: Option<String>,
 
@@ -60,6 +62,23 @@ pub enum Command {
     Completions { shell: Shell },
     /// Machine-readable capability discovery (cli-info/v1).
     Info,
+}
+
+impl Command {
+    /// Whether the command runs as a profile, so `--profile` means
+    /// something to it.
+    pub fn uses_profile(&self) -> bool {
+        match self {
+            Command::Auth(cmd) => !matches!(cmd, AuthCmd::SetCredential(_)),
+            Command::Patients(_) | Command::Records(_) | Command::Api(_) => true,
+            Command::Orgs(_)
+            | Command::Profiles(_)
+            | Command::Config(_)
+            | Command::SelfUpdate(_)
+            | Command::Completions { .. }
+            | Command::Info => false,
+        }
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -114,8 +133,9 @@ pub enum AuthCmd {
     /// What is stored and whether it can be used (auth-status/v1).
     Status,
     /// Remove the profile's stored sign-ins (all, or those --org and
-    /// --patient select); --forget also removes the client credentials and,
-    /// once the vault holds nothing more, its key.
+    /// --patient select). With --forget, once no other profile holds a
+    /// sign-in, also what every profile shares: the client credentials,
+    /// what kp v0.1.x left, and the vault's key.
     Logout(LogoutArgs),
 }
 
@@ -155,8 +175,10 @@ pub struct LoginArgs {
 pub struct LogoutArgs {
     #[command(flatten)]
     pub who: PatientArgs,
-    /// Also remove the client id and secret of both environments, a
-    /// state.json from kp v0.1.x, and the vault's key once no entry is left.
+    /// Also remove what every profile shares, unless another profile still
+    /// holds a sign-in: the client id and secret of both environments, kp
+    /// v0.1.x's Keychain items and the state.json listing them, and the
+    /// vault's key once no entry is left. The config and its profiles stay.
     #[arg(long)]
     pub forget: bool,
 }
@@ -167,7 +189,7 @@ pub enum PatientsCmd {
     #[command(visible_alias = "ls")]
     List {
         /// Also read each stored sign-in to report whether it is usable
-        /// (reads the Keychain).
+        /// (reads kp's vault).
         #[arg(long)]
         status: bool,
         /// Only members at this organization: `kaiser-health-plan` or

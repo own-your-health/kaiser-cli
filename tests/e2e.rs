@@ -710,13 +710,14 @@ fn one_unreadable_sign_in_does_not_hide_the_others() {
 }
 
 #[test]
-fn logout_forget_removes_a_broken_old_state_file_and_leaves_no_key() {
+fn logout_forget_keeps_a_broken_old_state_file_and_removes_the_rest() {
     let dir = tempfile::tempdir().unwrap();
     let mock = MockServer::start();
     let ctx = ctx(dir.path(), &mock);
     login(&ctx, "adult1");
-    // A v0.1.x state.json is never read by logout, so a broken one is no
-    // obstacle; --forget removes it.
+    // A v0.1.x state.json is not read by a plain logout, so a broken one is
+    // no obstacle. --forget keeps it, being the only list of v0.1.x's
+    // Keychain items, and removes everything else.
     let state_file = ctx.state_file().unwrap();
     std::fs::write(state_file.path(), "{broken").unwrap();
     commands::auth::run(
@@ -737,11 +738,29 @@ fn logout_forget_removes_a_broken_old_state_file_and_leaves_no_key() {
         }),
     )
     .unwrap();
-    assert!(!state_file.path().exists());
+    assert!(state_file.path().exists());
     assert!(credentials::read_client(&ctx.vault, Environment::Sandbox)
         .unwrap()
         .is_none());
     assert!(ctx.vault.names().unwrap().is_empty());
+}
+
+#[test]
+fn a_sign_in_finishes_when_chrome_does_not_open_and_the_address_is_opened_by_hand() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = MockServer::start();
+    let mut ctx = ctx(dir.path(), &mock);
+    // The window fails; the member opens the printed address themselves,
+    // which the follower stands in for, and kp is still listening.
+    let opened = window();
+    ctx.window = Box::new(move |profile: &ProfileName, url: &str| {
+        opened(profile, url)?;
+        Err(pk_cli_core::CliError::Other(
+            "Chrome is not installed".into(),
+        ))
+    });
+    login(&ctx, "adult1");
+    assert_eq!(settings(&ctx).grants.len(), 1);
 }
 
 #[test]
