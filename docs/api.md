@@ -41,8 +41,9 @@ not say. One GET of a Kaiser region's authorize URL answers it without
 signing in, with `response_type=code`, the production `client_id` and the
 https redirect mychart registered for production
 (`https://piekstra.github.io/mychart-cli/callback`), not following
-redirects. Epic answers with a 302 to its sign-in start
-(`…/Authentication/OAuth/Start`). An `error=` in that redirect's query means
+redirects. Epic redirects to the page that begins its sign-in,
+`…/Authentication/OAuth/Start`, with status 302. An `error=` in that
+redirect's query means
 Epic does not know the client id or the redirect there; no `error=` means it
 does. Never print the client id while running it. The second is whether Kaiser's Epic returns
 `ExplanationOfBenefit` to a member's token
