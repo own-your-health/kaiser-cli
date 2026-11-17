@@ -37,9 +37,15 @@ Two questions stay open until `mychart` has a production client id. The first
 is whether Epic's automatic client id distribution has reached Kaiser. Epic distributes a patient-facing USCDI app's
 client id to every community member "on a rolling 12-hour cycle" unless the
 member "has disabled auto-download functionality"; Kaiser's documentation does
-not say. Loading a Kaiser region's authorize URL with the production client id
-answers it without signing in: Kaiser's sign-in page means the client is known,
-an OAuth error page means it is not. The second is whether Kaiser's Epic returns
+not say. One GET of a Kaiser region's authorize URL answers it without
+signing in, with `response_type=code`, the production `client_id` and the
+https redirect mychart registered for production
+(`https://piekstra.github.io/mychart-cli/callback`), not following
+redirects. Epic redirects to the page that begins its sign-in,
+`…/Authentication/OAuth/Start`, with status 302. An `error=` in that
+redirect's query means
+Epic does not know the client id or the redirect there; no `error=` means it
+does. Never print the client id while running it. The second is whether Kaiser's Epic returns
 `ExplanationOfBenefit` to a member's token
 ([Claims through Epic](#claims-through-epic)).
 
@@ -199,7 +205,9 @@ Epic's EOB returns only what the organization has configured.
 
 Run once `mychart` has a production client id that Kaiser's Northwest
 authorization server accepts (the authorize-URL check above). A member signs
-in through `mychart` at Kaiser Permanente - Northwest. Then one read, whose
+in through `mychart` v0.4.0 or later at Kaiser Permanente - Northwest, with
+mychart's `redirect_uri` set to its https page: Epic takes only `https`
+redirects in production, and mychart sends the page from v0.4.0. Then one read, whose
 output is statuses and counts only. The commands are
 [`mychart`](https://github.com/piekstra/mychart-cli)'s (v0.2.0 or later:
 `patients list` prints `patient-list/v1`, `api GET` one FHIR read as the
