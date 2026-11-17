@@ -1,30 +1,37 @@
 //! Sign-in, renewal, export, `api` and logout in-process against
 //! medical-common's mock SMART + FHIR server on 127.0.0.1, standing in for
-//! Kaiser's. Sessions and client credentials live in a `MemoryVault`;
-//! nothing touches the Keychain or the network beyond 127.0.0.1. Every value
-//! is the mock's synthetic member.
+//! Kaiser's. Sessions and client credentials live in a vault over a
+//! temporary directory with an in-memory key; nothing touches the Keychain
+//! or the network beyond 127.0.0.1. Every value is the mock's synthetic
+//! member, signed in under the profile `adult1`.
 
+use std::any::Any;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
 use pk_cli_auth::refresh_lock::RefreshLock;
+use pk_cli_auth::vault::{MemoryKeys, Vault};
+use pk_cli_config::profile::ProfileName;
 use pk_cli_config::ConfigStore;
 use pk_med_fhir::test_util::{http_get, Fault, MockServer, CLIENT_ID, CLIENT_SECRET, PATIENT_ID};
 use pk_med_records::{Item, RecordsReader};
+use pk_med_smart::SessionStore;
 
 use kp::cli::{
     AuthCmd, ExportArgs, LoginArgs, LogoutArgs, PatientArgs, RecordsCmd, SetCredentialArgs,
 };
 use kp::commands::{self, Ctx};
-use kp::config::Config;
-use kp::credentials::{self, client_account, ClientCredentials, MemoryVault};
+use kp::config::{Config, ProfileSettings};
+use kp::credentials::{self, ClientCredentials};
 use kp::kaiser::Environment;
 
 /// The browser's part: follow the authorization URL to its redirect and
-/// deliver the redirect to kp's loopback listener, on another thread.
-fn browser() -> Box<dyn Fn(&str) -> bool> {
-    Box::new(|url: &str| {
+/// deliver the redirect to kp's loopback listener, on another thread. It
+/// opens for the profile the command runs as.
+fn window() -> kp::commands::OpenWindow {
+    Box::new(|profile: &ProfileName, url: &str| {
+        assert_eq!(profile.as_str(), "adult1");
         let url = url.to_string();
         std::thread::spawn(move || {
             let answer = http_get(&url).expect("the mock answers the authorization");
@@ -32,14 +39,33 @@ fn browser() -> Box<dyn Fn(&str) -> bool> {
             let back = answer.header("location").unwrap().to_string();
             http_get(&back).expect("kp's listener answers the redirect");
         });
-        true
+        Ok(Box::new(()) as Box<dyn Any>)
     })
+}
+
+fn adult1() -> ProfileName {
+    ProfileName::parse("adult1").unwrap()
+}
+
+/// The members `adult1` signed in.
+fn settings(ctx: &Ctx) -> ProfileSettings {
+    ctx.config().unwrap().profiles.settings(&adult1()).unwrap()
+}
+
+fn save(ctx: &Ctx, settings: &ProfileSettings) {
+    ctx.save_settings(&adult1(), settings).unwrap();
+}
+
+/// The vault entry of a sign-in's account in `adult1`.
+fn entry(account: &str) -> String {
+    format!("adult1/{}", account.strip_prefix("smart/").unwrap())
 }
 
 fn ctx(dir: &Path, mock: &MockServer) -> Ctx {
     let store = ConfigStore::new("kp").with_override(Some(dir.join("config.json")));
     let mut config = Config::default();
     config.set("fhir_base", &mock.fhir_base()).unwrap();
+    config.profiles.add(adult1());
     store.save(&config).unwrap();
     let ctx = Ctx {
         common: pk_cli_core::CommonArgs {
@@ -47,14 +73,17 @@ fn ctx(dir: &Path, mock: &MockServer) -> Ctx {
             ..Default::default()
         },
         store,
-        vault: Arc::new(MemoryVault::default()),
+        profile: Some("adult1".into()),
+        vault: Arc::new(Vault::new(MemoryKeys::new(), dir.join("vault"))),
+        legacy: Box::new(MemoryKeys::new()),
         lock: RefreshLock::at(dir.join("refresh.lock")),
-        browser: browser(),
+        window: window(),
+        forget_browser: Box::new(|_| Ok(false)),
         any_port: true,
     };
-    credentials::set_json(
-        ctx.vault.as_ref(),
-        &client_account(Environment::Sandbox),
+    credentials::store_client(
+        &ctx.vault,
+        Environment::Sandbox,
         &ClientCredentials::new(CLIENT_ID, CLIENT_SECRET).unwrap(),
     )
     .unwrap();
@@ -124,10 +153,18 @@ fn sign_in_then_export_claims_and_what_they_name() {
     let ctx = ctx(dir.path(), &mock);
     login(&ctx, "adult1");
 
-    let state = ctx.state_file().unwrap().load().unwrap();
-    assert_eq!(state.contexts.len(), 1);
-    assert_eq!(state.contexts[0].id, PATIENT_ID);
-    assert_eq!(state.contexts[0].organization, "kaiser-health-plan-sandbox");
+    let state = settings(&ctx);
+    assert_eq!(state.grants.len(), 1);
+    assert_eq!(state.grants[0].id, PATIENT_ID);
+    assert_eq!(state.grants[0].organization, "kaiser-health-plan-sandbox");
+    // The session is the profile's vault entry, and the key is the one item.
+    assert_eq!(
+        ctx.vault.names().unwrap(),
+        [
+            "_client/sandbox".to_string(),
+            entry(&format!("smart/kaiser-health-plan-sandbox/{PATIENT_ID}"))
+        ]
+    );
 
     // Discovery read the CapabilityStatement first (Kaiser has no
     // .well-known), and the token request carried HTTP Basic.
@@ -333,8 +370,11 @@ fn a_missing_sign_in_names_kps_command_once() {
     let mock = MockServer::start();
     let ctx = ctx(dir.path(), &mock);
     login(&ctx, "adult1");
-    let state = ctx.state_file().unwrap().load().unwrap();
-    assert!(ctx.vault.delete(&state.contexts[0].account()).unwrap());
+    let state = settings(&ctx);
+    assert!(ctx
+        .sessions(&adult1())
+        .delete(&state.grants[0].account())
+        .unwrap());
     let err = commands::records::export(
         &ctx,
         &ExportArgs {
@@ -349,7 +389,7 @@ fn a_missing_sign_in_names_kps_command_once() {
     assert!(!err.message().contains("auth login"), "{err}");
     assert_eq!(
         err.remedy(),
-        Some("run `kp auth login --org sandbox --label adult1`")
+        Some("run `kp auth login --profile adult1 --org sandbox --label adult1`")
     );
 }
 
@@ -359,14 +399,14 @@ fn a_sign_in_a_newer_kp_stored_says_to_update() {
     let mock = MockServer::start();
     let ctx = ctx(dir.path(), &mock);
     login(&ctx, "adult1");
-    let state = ctx.state_file().unwrap().load().unwrap();
-    let account = state.contexts[0].account();
-    let stored = ctx.vault.read(&account).unwrap().unwrap();
+    let state = settings(&ctx);
+    let account = state.grants[0].account();
+    let stored = ctx.vault.get(&entry(&account)).unwrap().unwrap();
     let mut session: serde_json::Value = serde_json::from_str(stored.expose()).unwrap();
     session["format"] = (pk_med_smart::SESSION_FORMAT + 1).into();
     ctx.vault
-        .write(
-            &account,
+        .put(
+            &entry(&account),
             &pk_cli_secrets::Secret::new(session.to_string().as_str()),
         )
         .unwrap();
@@ -397,8 +437,8 @@ fn a_production_member_is_not_written_to_a_plain_file() {
     let mut config: Config = ctx.config().unwrap();
     config.unset("fhir_base").unwrap();
     ctx.store.save(&config).unwrap();
-    let mut state = ctx.state_file().unwrap().load().unwrap();
-    state.upsert_context(kp::session::Context {
+    let mut state = settings(&ctx);
+    state.upsert(kp::session::Context {
         id: PATIENT_ID.into(),
         organization: "kaiser-health-plan".into(),
         label: None,
@@ -406,7 +446,7 @@ fn a_production_member_is_not_written_to_a_plain_file() {
         fhir_user: None,
         signed_in_at: "2020-01-01T00:00:00Z".into(),
     });
-    ctx.state_file().unwrap().save(&state).unwrap();
+    save(&ctx, &state);
     let err = commands::records::run(
         &ctx,
         &RecordsCmd::Export(ExportArgs {
@@ -438,13 +478,8 @@ fn a_declined_consent_stores_nothing() {
     )
     .unwrap_err();
     assert_eq!(err.exit_code(), 3, "{err}");
-    assert!(ctx
-        .state_file()
-        .unwrap()
-        .load()
-        .unwrap()
-        .contexts
-        .is_empty());
+    assert!(settings(&ctx).grants.is_empty());
+    assert!(ctx.sessions(&adult1()).accounts().unwrap().is_empty());
 }
 
 #[test]
@@ -455,12 +490,12 @@ fn a_second_member_needs_patient_and_logout_removes_one() {
     login(&ctx, "adult1");
     // The mock serves one member; a second row stands for a family member
     // signed in through proxy access.
-    let mut state = ctx.state_file().unwrap().load().unwrap();
-    let mut other = state.contexts[0].clone();
+    let mut state = settings(&ctx);
+    let mut other = state.grants[0].clone();
     other.id = "pat-0002".into();
     other.label = Some("child1".into());
-    state.upsert_context(other);
-    ctx.state_file().unwrap().save(&state).unwrap();
+    state.upsert(other);
+    save(&ctx, &state);
     let err = commands::records::run(
         &ctx,
         &RecordsCmd::Export(ExportArgs {
@@ -483,12 +518,14 @@ fn a_second_member_needs_patient_and_logout_removes_one() {
         }),
     )
     .unwrap();
-    let left = ctx.state_file().unwrap().load().unwrap().contexts;
+    let left = settings(&ctx).grants;
     assert_eq!(left.len(), 1);
     assert_eq!(left[0].label.as_deref(), Some("child1"));
     assert!(ctx
         .vault
-        .read(&format!("smart/kaiser-health-plan-sandbox/{PATIENT_ID}"))
+        .get(&entry(&format!(
+            "smart/kaiser-health-plan-sandbox/{PATIENT_ID}"
+        )))
         .unwrap()
         .is_none());
 }
@@ -511,15 +548,13 @@ fn set_credential_then_status_reads_both() {
         }),
     )
     .unwrap();
-    let state = ctx.state_file().unwrap().load().unwrap();
-    assert!(state.has_client(Environment::Production));
-    let production = credentials::read_client(ctx.vault.as_ref(), Environment::Production)
+    let production = credentials::read_client(&ctx.vault, Environment::Production)
         .unwrap()
         .unwrap();
     assert_eq!(production.client_id, "client-one");
     assert_eq!(production.secret().expose(), "secret-one");
     // The sandbox pair `ctx` stored is untouched.
-    let sandbox = credentials::read_client(ctx.vault.as_ref(), Environment::Sandbox)
+    let sandbox = credentials::read_client(&ctx.vault, Environment::Sandbox)
         .unwrap()
         .unwrap();
     assert_eq!(sandbox.client_id, CLIENT_ID);
@@ -551,12 +586,11 @@ fn a_production_member_never_comes_from_this_machine() {
 
 #[test]
 fn a_stored_sign_in_pointing_elsewhere_is_refused_before_any_renewal() {
-    use pk_med_smart::SessionStore;
     let dir = tempfile::tempdir().unwrap();
     let mock = MockServer::start();
     let ctx = ctx(dir.path(), &mock);
     login(&ctx, "adult1");
-    let sessions = kp::session::Sessions(ctx.vault.clone());
+    let sessions = ctx.sessions(&adult1());
     let account = format!("smart/kaiser-health-plan-sandbox/{PATIENT_ID}");
     let mut session = sessions.load(&account).unwrap().unwrap();
     session.token_endpoint = "https://mock.example:8080/token".into();
@@ -603,7 +637,11 @@ fn no_member_signs_in_at_a_server_that_is_neither_kaiser_nor_this_machine() {
     let ctx = ctx(dir.path(), &mock);
     // A base set by hand in the file, past `config set`'s own check.
     let path = ctx.store.path().unwrap();
-    std::fs::write(&path, r#"{"fhir_base":"https://mock.example:8080/fhir"}"#).unwrap();
+    std::fs::write(
+        &path,
+        r#"{"fhir_base":"https://mock.example:8080/fhir","profiles":{"adult1":{}}}"#,
+    )
+    .unwrap();
     for org in ["kaiser-health-plan", "sandbox"] {
         let err = commands::auth::run(
             &ctx,
@@ -627,15 +665,18 @@ fn one_unreadable_sign_in_does_not_hide_the_others() {
     let mock = MockServer::start();
     let ctx = ctx(dir.path(), &mock);
     login(&ctx, "adult1");
-    let mut state = ctx.state_file().unwrap().load().unwrap();
-    let mut other = state.contexts[0].clone();
+    let mut state = settings(&ctx);
+    let mut other = state.grants[0].clone();
     other.id = "pat-0002".into();
     other.label = Some("child1".into());
     ctx.vault
-        .write(&other.account(), &pk_cli_secrets::Secret::new("{not json"))
+        .put(
+            &entry(&other.account()),
+            &pk_cli_secrets::Secret::new("{not json"),
+        )
         .unwrap();
-    state.upsert_context(other);
-    ctx.state_file().unwrap().save(&state).unwrap();
+    state.upsert(other);
+    save(&ctx, &state);
     let (_, status) = commands::auth::status_of(&ctx).unwrap();
     let rows = status["patients"].as_array().unwrap();
     assert_eq!(rows.len(), 2);
@@ -648,7 +689,7 @@ fn one_unreadable_sign_in_does_not_hide_the_others() {
     assert!(!rows[1]["error"].as_str().unwrap().contains("pat-0002"));
     assert_eq!(
         rows[1]["remedy"],
-        "run `kp auth logout --org sandbox --patient child1`, then `kp auth login --org sandbox --label child1`"
+        "run `kp auth logout --profile adult1 --org sandbox --patient child1`, then `kp auth login --profile adult1 --org sandbox --label child1`"
     );
     assert!(rows[0].get("remedy").is_none());
     assert_eq!(status["authenticated"], true);
@@ -669,20 +710,26 @@ fn one_unreadable_sign_in_does_not_hide_the_others() {
 }
 
 #[test]
-fn logout_forget_works_past_a_broken_state_file() {
+fn logout_forget_keeps_a_broken_old_state_file_and_removes_the_rest() {
     let dir = tempfile::tempdir().unwrap();
     let mock = MockServer::start();
     let ctx = ctx(dir.path(), &mock);
+    login(&ctx, "adult1");
+    // A v0.1.x state.json is not read by a plain logout, so a broken one is
+    // no obstacle. --forget keeps it, being the only list of v0.1.x's
+    // Keychain items, and removes everything else.
     let state_file = ctx.state_file().unwrap();
     std::fs::write(state_file.path(), "{broken").unwrap();
-    assert!(commands::auth::run(
+    commands::auth::run(
         &ctx,
         &AuthCmd::Logout(LogoutArgs {
             who: PatientArgs::default(),
             forget: false,
         }),
     )
-    .is_err());
+    .unwrap();
+    assert!(state_file.path().exists());
+    assert_eq!(ctx.vault.names().unwrap(), ["_client/sandbox"]);
     commands::auth::run(
         &ctx,
         &AuthCmd::Logout(LogoutArgs {
@@ -691,12 +738,29 @@ fn logout_forget_works_past_a_broken_state_file() {
         }),
     )
     .unwrap();
-    assert!(!state_file.path().exists());
-    assert!(
-        credentials::read_client(ctx.vault.as_ref(), Environment::Sandbox)
-            .unwrap()
-            .is_none()
-    );
+    assert!(state_file.path().exists());
+    assert!(credentials::read_client(&ctx.vault, Environment::Sandbox)
+        .unwrap()
+        .is_none());
+    assert!(ctx.vault.names().unwrap().is_empty());
+}
+
+#[test]
+fn a_sign_in_finishes_when_chrome_does_not_open_and_the_address_is_opened_by_hand() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = MockServer::start();
+    let mut ctx = ctx(dir.path(), &mock);
+    // The window fails; the member opens the printed address themselves,
+    // which the follower stands in for, and kp is still listening.
+    let opened = window();
+    ctx.window = Box::new(move |profile: &ProfileName, url: &str| {
+        opened(profile, url)?;
+        Err(pk_cli_core::CliError::Other(
+            "Chrome is not installed".into(),
+        ))
+    });
+    login(&ctx, "adult1");
+    assert_eq!(settings(&ctx).grants.len(), 1);
 }
 
 #[test]
@@ -731,7 +795,7 @@ fn a_refused_renewal_stops_the_export_and_keeps_the_last_complete_one() {
     assert_eq!(failed.exit_code(), 3, "{failed}");
     assert_eq!(
         failed.remedy(),
-        Some("run `kp auth login --org sandbox --label adult1`")
+        Some("run `kp auth login --profile adult1 --org sandbox --label adult1`")
     );
     assert_eq!(std::fs::read(out.join("records.ndjson")).unwrap(), complete);
     let incomplete = std::fs::read_to_string(out.join("records.incomplete.ndjson")).unwrap();
@@ -743,7 +807,9 @@ fn a_refused_renewal_stops_the_export_and_keeps_the_last_complete_one() {
     // refused token again.
     let item = ctx
         .vault
-        .read(&format!("smart/kaiser-health-plan-sandbox/{PATIENT_ID}"))
+        .get(&entry(&format!(
+            "smart/kaiser-health-plan-sandbox/{PATIENT_ID}"
+        )))
         .unwrap()
         .unwrap();
     let session = pk_med_smart::decode_session(item.expose()).unwrap();

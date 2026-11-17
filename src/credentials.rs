@@ -1,76 +1,25 @@
-//! Where `kp` keeps secrets: the OS Keychain (service `piekstra.kp`) in the
-//! binary, an in-memory map in the tests. Each item is one JSON value.
-//!
-//! The client id and secret Kaiser issues for this household's app are one
-//! item per environment (`client/production`, `client/sandbox`). Kaiser's
-//! developer terms hold both confidential, so neither is ever printed, put in
-//! a file or taken from argv.
+//! The client id and secret Kaiser issues for this household's app: one
+//! entry per environment in kp's vault (`_client/production`,
+//! `_client/sandbox`), beside the profiles' sign-ins, so the whole CLI reads
+//! one keychain item. A leading `_` is a name no profile has, so no profile
+//! lists or removes them. Kaiser's developer terms hold both confidential,
+//! so neither is ever printed, put in a plain file or taken from argv.
 
-use std::collections::HashMap;
-use std::sync::Mutex;
-
+use pk_cli_auth::vault::Vault;
 use pk_cli_core::CliError;
-use pk_cli_secrets::{CredentialStore, Secret};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use pk_cli_secrets::Secret;
+use serde::{Deserialize, Serialize};
 
 use crate::kaiser::Environment;
 
-/// `Send + Sync`, so a FHIR client's token source can renew a sign-in
-/// through it.
-pub trait Vault: Send + Sync {
-    fn read(&self, account: &str) -> Result<Option<Secret>, CliError>;
-    fn write(&self, account: &str, value: &Secret) -> Result<(), CliError>;
-    /// `true` when something was removed.
-    fn delete(&self, account: &str) -> Result<bool, CliError>;
-    fn service(&self) -> &str;
+/// The vault entry for an environment's client registration.
+pub fn client_entry(environment: Environment) -> String {
+    format!("_client/{}", environment.as_str())
 }
 
-impl Vault for CredentialStore {
-    fn read(&self, account: &str) -> Result<Option<Secret>, CliError> {
-        self.get(account)
-    }
-    fn write(&self, account: &str, value: &Secret) -> Result<(), CliError> {
-        self.set(account, value)
-    }
-    fn delete(&self, account: &str) -> Result<bool, CliError> {
-        CredentialStore::delete(self, account)
-    }
-    fn service(&self) -> &str {
-        CredentialStore::service(self)
-    }
-}
-
-/// An item that is present but does not parse is an error naming the
-/// account, never `None`: reading it as absent would look like an
-/// unexplained sign-out.
-pub fn get_json<T: DeserializeOwned>(
-    vault: &dyn Vault,
-    account: &str,
-    remedy: &str,
-) -> Result<Option<T>, CliError> {
-    match vault.read(account)? {
-        None => Ok(None),
-        Some(secret) => serde_json::from_str(secret.expose())
-            .map(Some)
-            .map_err(|e| {
-                CliError::Keychain(format!(
-                    "the Keychain item {account} in {} is not one this version of kp can read ({})",
-                    vault.service(),
-                    pk_med_fhir::describe_json_error(&e)
-                ))
-                .with_remedy(remedy.to_string())
-            }),
-    }
-}
-
-pub fn set_json<T: Serialize>(vault: &dyn Vault, account: &str, value: &T) -> Result<(), CliError> {
-    let text = serde_json::to_string(value)
-        .map_err(|e| CliError::Other(format!("serializing the Keychain item {account}: {e}")))?;
-    vault.write(account, &Secret::new(text))
-}
-
-/// The Keychain account for an environment's client registration.
-pub fn client_account(environment: Environment) -> String {
+/// The keychain account a release before profiles kept it in, which
+/// `profiles migrate` moves from.
+pub fn legacy_client_account(environment: Environment) -> String {
     format!("client/{}", environment.as_str())
 }
 
@@ -129,50 +78,19 @@ impl ClientCredentials {
     }
 }
 
-pub const CLIENT_REMEDY: &str = "store it again with `kp auth set-credential --overwrite`";
-
 pub fn read_client(
-    vault: &dyn Vault,
+    vault: &Vault,
     environment: Environment,
 ) -> Result<Option<ClientCredentials>, CliError> {
-    get_json(vault, &client_account(environment), CLIENT_REMEDY)
+    vault.get_json(&client_entry(environment))
 }
 
-/// An in-memory vault for tests.
-#[derive(Default)]
-pub struct MemoryVault {
-    items: Mutex<HashMap<String, String>>,
-}
-
-impl MemoryVault {
-    fn items(&self) -> std::sync::MutexGuard<'_, HashMap<String, String>> {
-        self.items
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    pub fn accounts(&self) -> Vec<String> {
-        let mut accounts: Vec<String> = self.items().keys().cloned().collect();
-        accounts.sort();
-        accounts
-    }
-}
-
-impl Vault for MemoryVault {
-    fn read(&self, account: &str) -> Result<Option<Secret>, CliError> {
-        Ok(self.items().get(account).map(|s| Secret::new(s.clone())))
-    }
-    fn write(&self, account: &str, value: &Secret) -> Result<(), CliError> {
-        self.items()
-            .insert(account.to_string(), value.expose().to_string());
-        Ok(())
-    }
-    fn delete(&self, account: &str) -> Result<bool, CliError> {
-        Ok(self.items().remove(account).is_some())
-    }
-    fn service(&self) -> &str {
-        "memory"
-    }
+pub fn store_client(
+    vault: &Vault,
+    environment: Environment,
+    client: &ClientCredentials,
+) -> Result<(), CliError> {
+    vault.put_json(&client_entry(environment), client)
 }
 
 #[cfg(test)]
@@ -214,13 +132,18 @@ mod tests {
         }
     }
 
+    fn vault(dir: &std::path::Path) -> Vault {
+        Vault::new(pk_cli_auth::vault::MemoryKeys::new(), dir.join("vault"))
+    }
+
     #[test]
     fn the_client_round_trips_through_the_vault() {
-        let vault = MemoryVault::default();
+        let dir = tempfile::tempdir().unwrap();
+        let vault = vault(dir.path());
         assert!(read_client(&vault, Environment::Sandbox).unwrap().is_none());
         let c = ClientCredentials::new("client-one", "secret-one").unwrap();
-        set_json(&vault, &client_account(Environment::Sandbox), &c).unwrap();
-        assert_eq!(vault.accounts(), ["client/sandbox"]);
+        store_client(&vault, Environment::Sandbox, &c).unwrap();
+        assert_eq!(vault.names().unwrap(), ["_client/sandbox"]);
         let back = read_client(&vault, Environment::Sandbox).unwrap().unwrap();
         assert_eq!(back.client_id, "client-one");
         assert!(read_client(&vault, Environment::Production)
@@ -229,15 +152,15 @@ mod tests {
     }
 
     #[test]
-    fn an_unreadable_item_is_an_error_not_absent() {
-        let vault = MemoryVault::default();
+    fn an_unreadable_entry_is_an_error_not_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = vault(dir.path());
         vault
-            .write(
-                &client_account(Environment::Production),
+            .put(
+                &client_entry(Environment::Production),
                 &Secret::new("{not json"),
             )
             .unwrap();
-        let err = read_client(&vault, Environment::Production).err().unwrap();
-        assert!(err.to_string().contains("client/production"), "{err}");
+        assert!(read_client(&vault, Environment::Production).is_err());
     }
 }

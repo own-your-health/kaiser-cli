@@ -19,6 +19,14 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "PATH", env = "KP_CONFIG")]
     pub config: Option<std::path::PathBuf>,
 
+    /// The login to use: one kp.org account, added with `kp profiles add`.
+    /// Required by `auth login|status|logout`, `patients`, `records` and
+    /// `api`, and refused by every other command (`profiles remove` and
+    /// `profiles migrate` take the name as their argument); `KP_PROFILE`
+    /// when not given. There is no default.
+    #[arg(long, global = true, value_name = "NAME")]
+    pub profile: Option<String>,
+
     #[command(subcommand)]
     pub command: Command,
 }
@@ -29,6 +37,9 @@ pub enum Command {
     /// sandbox (org-list/v1).
     #[command(subcommand)]
     Orgs(OrgsCmd),
+    /// The logins kp keeps, one per kp.org account (profile-list/v1).
+    #[command(subcommand)]
+    Profiles(ProfilesCmd),
     /// The app's client registration with Kaiser, signing in as a member,
     /// and the stored sign-ins.
     #[command(subcommand)]
@@ -53,6 +64,23 @@ pub enum Command {
     Info,
 }
 
+impl Command {
+    /// Whether the command runs as a profile, so `--profile` means
+    /// something to it.
+    pub fn uses_profile(&self) -> bool {
+        match self {
+            Command::Auth(cmd) => !matches!(cmd, AuthCmd::SetCredential(_)),
+            Command::Patients(_) | Command::Records(_) | Command::Api(_) => true,
+            Command::Orgs(_)
+            | Command::Profiles(_)
+            | Command::Config(_)
+            | Command::SelfUpdate(_)
+            | Command::Completions { .. }
+            | Command::Info => false,
+        }
+    }
+}
+
 #[derive(Subcommand, Debug)]
 pub enum OrgsCmd {
     /// Every organization kp reaches.
@@ -64,23 +92,50 @@ pub enum OrgsCmd {
 }
 
 #[derive(Subcommand, Debug)]
+pub enum ProfilesCmd {
+    /// The configured profiles (profile-list/v1).
+    #[command(visible_alias = "ls")]
+    List,
+    /// Add a profile: one kp.org account (`adult1`). Then `kp auth login
+    /// --profile <NAME>` signs its members in.
+    Add {
+        /// 1 to 32 lowercase letters, digits, `-` or `_`.
+        name: String,
+    },
+    /// Remove a profile with its sign-ins and its browser profile. Asks
+    /// first; --force to run without asking.
+    Remove {
+        name: String,
+        /// Remove without asking.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Move the sign-ins and client credentials kp v0.1.x kept (one
+    /// Keychain item each, listed in state.json) into the profile NAME,
+    /// adding it if it is new. Local: no network, no new approval.
+    Migrate { name: String },
+}
+
+#[derive(Subcommand, Debug)]
 pub enum AuthCmd {
     /// Store the client id and secret Kaiser's developer portal issued for
-    /// this household's app, in the Keychain. On a terminal kp asks for each
+    /// this household's app, in kp's vault (shared by every profile). On a terminal kp asks for each
     /// without echoing it; with --stdin or --from-env it reads
     /// `<id>:<secret>`, or the id and the secret on two lines. Never on the
     /// command line.
     SetCredential(SetCredentialArgs),
-    /// Sign in as a member in the system browser (kp.org's own sign-in and
-    /// consent pages, PKCE, a redirect to this machine). One sign-in per
-    /// member; a member who acts for family members on kp.org signs in once
-    /// for each, picking them on Kaiser's page.
+    /// Sign in as a member in Chrome, in the profile's own browser profile
+    /// (Kaiser's sign-in and consent pages, PKCE, a redirect to this
+    /// machine). One sign-in per member; a member who acts for family
+    /// members on kp.org signs in once for each, picking them on Kaiser's
+    /// page.
     Login(LoginArgs),
     /// What is stored and whether it can be used (auth-status/v1).
     Status,
-    /// Remove stored sign-ins (all, or those --org and --patient select);
-    /// --forget also removes the client credentials, the config and the
-    /// state file.
+    /// Remove the profile's stored sign-ins (all, or those --org and
+    /// --patient select). With --forget, once no other profile holds a
+    /// sign-in, also what every profile shares: the client credentials,
+    /// what kp v0.1.x left, and the vault's key.
     Logout(LogoutArgs),
 }
 
@@ -108,7 +163,7 @@ pub struct LoginArgs {
     /// pick them with --patient later.
     #[arg(long, value_name = "WHO")]
     pub label: Option<String>,
-    /// Print the sign-in URL instead of opening a browser.
+    /// Print the sign-in URL instead of opening Chrome.
     #[arg(long)]
     pub no_browser: bool,
     /// How long to wait for the sign-in to finish, in minutes.
@@ -120,8 +175,10 @@ pub struct LoginArgs {
 pub struct LogoutArgs {
     #[command(flatten)]
     pub who: PatientArgs,
-    /// Also remove the client id and secret of both environments, the config
-    /// and the state file.
+    /// Also remove what every profile shares, unless another profile still
+    /// holds a sign-in: the client id and secret of both environments, kp
+    /// v0.1.x's Keychain items and the state.json listing them, and the
+    /// vault's key once no entry is left. The config and its profiles stay.
     #[arg(long)]
     pub forget: bool,
 }
@@ -132,7 +189,7 @@ pub enum PatientsCmd {
     #[command(visible_alias = "ls")]
     List {
         /// Also read each stored sign-in to report whether it is usable
-        /// (reads the Keychain).
+        /// (reads kp's vault).
         #[arg(long)]
         status: bool,
         /// Only members at this organization: `kaiser-health-plan` or

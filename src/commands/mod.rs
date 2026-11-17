@@ -1,26 +1,31 @@
 //! Command implementations. `main` builds a [`Ctx`] and dispatches; the
-//! tests build one over an in-memory vault, a scratch config directory and
-//! lock, and a stand-in browser.
+//! tests build one over a vault with an in-memory key, a scratch config
+//! directory and lock, and a stand-in browser.
 
 pub mod api;
 pub mod auth;
 pub mod config;
 pub mod orgs;
 pub mod patients;
+pub mod profiles;
 pub mod records;
 
+use std::any::Any;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use pk_cli_auth::refresh_lock::RefreshLock;
+use pk_cli_auth::vault::{KeyStore, Vault};
+use pk_cli_config::profile::{self, ProfileName};
 use pk_cli_config::ConfigStore;
 use pk_cli_core::{CliError, CommonArgs};
 use pk_cli_http::BlockingTransport;
 use pk_cli_secrets::CredentialStore;
+use pk_med_smart::ProfileSessions;
 
 use crate::cli::PatientArgs;
-use crate::config::Config;
-use crate::credentials::{self, ClientCredentials, Vault};
+use crate::config::{Config, ProfileSettings};
+use crate::credentials::{self, ClientCredentials};
 use crate::kaiser::{self, Environment};
 use crate::session::{Context, Live};
 use crate::state::StateFile;
@@ -28,36 +33,80 @@ use crate::state::StateFile;
 pub const BIN: &str = "kp";
 pub const REPO: &str = "piekstra/kaiser-cli";
 
-/// Names the Keychain service a run uses instead of `piekstra.kp`. For the
-/// test suite and for dogfooding error paths: a service that holds nothing
-/// reads as signed out without a Keychain prompt. It moves only the
-/// Keychain; the config and state stay where they are.
+/// Names the keychain service a run uses instead of `piekstra.kp`. For the
+/// test suite and for dogfooding: a service that holds nothing reads as
+/// signed out without a keychain prompt. With it, the vault's entries live
+/// beside the config file (`vault.<service>/`), so a test's entries never
+/// meet the real vault's key.
 pub const KEYCHAIN_SERVICE_ENV: &str = "KP_KEYCHAIN_SERVICE";
+
+/// The environment's fallback for `--profile`.
+pub const PROFILE_ENV: &str = "KP_PROFILE";
+
+/// Opens the sign-in address in the profile's own browser; the window stays
+/// open while the returned value lives.
+pub type OpenWindow = Box<dyn Fn(&ProfileName, &str) -> Result<Box<dyn Any>, CliError>>;
+
+/// Removes a profile's kept browser profile; whether there was one.
+pub type ForgetBrowser = Box<dyn Fn(&ProfileName) -> Result<bool, CliError>>;
 
 pub struct Ctx {
     pub common: CommonArgs,
     pub store: ConfigStore,
-    pub vault: Arc<dyn Vault>,
+    /// `--profile`, before it is checked against the config.
+    pub profile: Option<String>,
+    pub vault: Arc<Vault>,
+    /// Where releases before profiles kept each secret as its own keychain
+    /// item, which `profiles migrate` moves from.
+    pub legacy: Box<dyn KeyStore>,
     pub lock: RefreshLock,
-    /// Opens the sign-in URL; returns whether something was launched.
-    pub browser: Box<dyn Fn(&str) -> bool>,
+    pub window: OpenWindow,
+    pub forget_browser: ForgetBrowser,
     /// Listen on any loopback port, not the configured one (tests, whose
     /// mock server redirects wherever it is asked to).
     pub any_port: bool,
 }
 
 impl Ctx {
-    /// The binary's context: the Keychain (or `KP_KEYCHAIN_SERVICE`), the
-    /// family's refresh lock, `~/.config/kp`, the system browser.
-    pub fn for_binary(common: CommonArgs, config: Option<PathBuf>) -> Result<Self, CliError> {
+    /// The binary's context: kp's vault (or one under `KP_KEYCHAIN_SERVICE`),
+    /// the family's refresh lock, `~/.config/kp`, Chrome in the profile's
+    /// own browser profile.
+    pub fn for_binary(
+        common: CommonArgs,
+        config: Option<PathBuf>,
+        profile: Option<String>,
+    ) -> Result<Self, CliError> {
+        let store = ConfigStore::new(BIN).with_override(config);
+        let (vault, legacy): (Vault, Box<dyn KeyStore>) = match keychain_override() {
+            Some(service) => {
+                let dir = store
+                    .path()?
+                    .parent()
+                    .map(|d| d.join(format!("vault.{service}")))
+                    .ok_or_else(|| CliError::Other("the config path has no directory".into()))?;
+                (
+                    Vault::new(CredentialStore::new(service.clone()), dir),
+                    Box::new(CredentialStore::new(service)),
+                )
+            }
+            None => (
+                Vault::for_binary(BIN)?,
+                Box::new(CredentialStore::for_binary(BIN)),
+            ),
+        };
         Ok(Ctx {
             common,
-            store: ConfigStore::new(BIN).with_override(config),
-            vault: Arc::new(credential_store()),
+            store,
+            profile,
+            vault: Arc::new(vault),
+            legacy,
             lock: RefreshLock::for_binary(BIN)?,
-            browser: Box::new(|url| {
-                pk_cli_auth::oauth::open_browser(url);
-                true
+            window: Box::new(|profile, url| {
+                pk_med_smart::SignInWindow::open_at(BIN, profile, url, &[])
+                    .map(|w| Box::new(w) as Box<dyn Any>)
+            }),
+            forget_browser: Box::new(|profile| {
+                pk_cli_browser::forget_named_profile(BIN, profile.as_str()).map_err(CliError::from)
             }),
             any_port: false,
         })
@@ -73,25 +122,66 @@ impl Ctx {
         Ok(config)
     }
 
+    /// Write the config owner-only and whole (`fsutil::write_private`): its
+    /// profiles' grants carry each member's FHIR patient id, and a crash
+    /// mid-write must not lose every profile. `ConfigStore::save` writes
+    /// with the umask's mode, in place.
+    pub fn save_config(&self, config: &Config) -> Result<(), CliError> {
+        let body = serde_json::to_string_pretty(config)
+            .map_err(|e| CliError::Other(format!("serializing config: {e}")))?;
+        crate::fsutil::write_private(&self.store.path()?, body.as_bytes())
+    }
+
+    /// The profile this command runs as: `--profile`, else `KP_PROFILE`. It
+    /// must be configured; there is no default.
+    pub fn profile(&self, config: &Config) -> Result<ProfileName, CliError> {
+        profile::resolve(self.profile.as_deref(), PROFILE_ENV, &config.profiles, BIN)
+    }
+
+    pub fn settings(
+        &self,
+        config: &Config,
+        profile: &ProfileName,
+    ) -> Result<ProfileSettings, CliError> {
+        config.profiles.settings(profile)
+    }
+
+    /// Replace a profile's settings in the config file.
+    pub fn save_settings(
+        &self,
+        profile: &ProfileName,
+        settings: &ProfileSettings,
+    ) -> Result<(), CliError> {
+        let mut config = self.config()?;
+        config.profiles.set_settings(profile, settings)?;
+        self.save_config(&config)
+    }
+
+    pub fn sessions(&self, profile: &ProfileName) -> ProfileSessions<'_> {
+        ProfileSessions::new(&self.vault, profile.clone())
+    }
+
+    /// `state.json` as releases before profiles kept it.
     pub fn state_file(&self) -> Result<StateFile, CliError> {
         Ok(StateFile::beside(&self.store.path()?))
     }
 
-    pub fn contexts(&self) -> Result<Vec<Context>, CliError> {
-        Ok(self.state_file()?.load()?.contexts)
-    }
-
-    /// The signed-in member `who` names (the only one, when one is held).
-    pub fn signed_in(&self, who: &PatientArgs) -> Result<Context, CliError> {
+    /// The profile's member `who` names (the only one, when one is held).
+    pub fn signed_in(
+        &self,
+        config: &Config,
+        profile: &ProfileName,
+        who: &PatientArgs,
+    ) -> Result<Context, CliError> {
         let org = who.org.as_deref().map(kaiser::resolve_org).transpose()?;
-        let contexts = self.contexts()?;
-        crate::session::pick(&contexts, who.patient.as_deref(), org).cloned()
+        let settings = self.settings(config, profile)?;
+        crate::session::pick(&settings.grants, who.patient.as_deref(), org, profile).cloned()
     }
 
     /// The client credentials for an environment, or the auth error that
     /// says how to store them.
     pub fn client(&self, environment: Environment) -> Result<ClientCredentials, CliError> {
-        credentials::read_client(self.vault.as_ref(), environment)?.ok_or_else(|| {
+        credentials::read_client(&self.vault, environment)?.ok_or_else(|| {
             CliError::Auth(format!(
                 "no {} client id and secret are stored",
                 environment.as_str()
@@ -103,17 +193,22 @@ impl Ctx {
         })
     }
 
-    /// A context's sign-in, renewed when its token has lapsed.
-    pub fn live(&self, context: &Context) -> Result<Live<BlockingTransport>, CliError> {
+    /// A grant's sign-in, renewed when its token has lapsed.
+    pub fn live(
+        &self,
+        profile: &ProfileName,
+        context: &Context,
+    ) -> Result<Live<BlockingTransport>, CliError> {
         let client = self.client(context.environment()?)?;
         Live::start(
             transport()?,
             self.vault.clone(),
+            profile.clone(),
             self.lock.clone(),
             client,
             context,
         )
-        .map_err(|e| sign_in_again(e, context))
+        .map_err(|e| sign_in_again(e, profile, context))
     }
 
     pub fn note(&self, msg: impl AsRef<str>) {
@@ -123,11 +218,17 @@ impl Ctx {
     }
 }
 
+fn keychain_override() -> Option<String> {
+    std::env::var(KEYCHAIN_SERVICE_ENV)
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+}
+
 /// A sign-in error's remedy as kp's own command for this member: a refused or
 /// missing sign-in is `auth login`, a stored one that does not read is
 /// `auth logout` then `auth login`, and one a newer kp wrote is
 /// `self-update`. Other errors keep their remedy.
-pub fn sign_in_again(e: CliError, context: &Context) -> CliError {
+pub fn sign_in_again(e: CliError, profile: &ProfileName, context: &Context) -> CliError {
     let org = match context.environment() {
         Ok(Environment::Sandbox) => "sandbox",
         _ => kaiser::ORG_ID,
@@ -137,7 +238,7 @@ pub fn sign_in_again(e: CliError, context: &Context) -> CliError {
         .as_deref()
         .map(|l| format!(" --label {l}"))
         .unwrap_or_default();
-    let login = format!("`{BIN} auth login --org {org}{label}`");
+    let login = format!("`{BIN} auth login --profile {profile} --org {org}{label}`");
     match e.remedy() {
         Some(pk_med_smart::remedy::UPDATE) => {
             return e.with_remedy(format!("run `{BIN} self-update`"));
@@ -149,11 +250,11 @@ pub fn sign_in_again(e: CliError, context: &Context) -> CliError {
                 Some(label) => (label.to_string(), String::new()),
                 None => (
                     "<WHO>".to_string(),
-                    format!(" (`{BIN} patients list` shows who)"),
+                    format!(" (`{BIN} patients list --profile {profile}` shows who)"),
                 ),
             };
             return e.with_remedy(format!(
-                "run `{BIN} auth logout --org {org} --patient {who}`{found}, then {login}"
+                "run `{BIN} auth logout --profile {profile} --org {org} --patient {who}`{found}, then {login}"
             ));
         }
         _ => {}
@@ -174,13 +275,6 @@ pub fn report(e: &CliError) {
 /// prints, so a caller (medrec) reads the remedy the same way from both.
 fn report_line(e: &CliError) -> String {
     format!("error: {e}")
-}
-
-pub fn credential_store() -> CredentialStore {
-    match std::env::var(KEYCHAIN_SERVICE_ENV) {
-        Ok(service) if !service.trim().is_empty() => CredentialStore::new(service),
-        _ => CredentialStore::for_binary(BIN),
-    }
 }
 
 /// The transport for Kaiser's FHIR and OAuth endpoints: no redirects, the

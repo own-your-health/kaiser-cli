@@ -13,9 +13,9 @@ use serde_json::{json, Value};
 
 use super::{rfc3339, transport, Ctx, BIN};
 use crate::cli::{AuthCmd, LoginArgs, LogoutArgs, SetCredentialArgs};
-use crate::credentials::{self, client_account, ClientCredentials};
+use crate::credentials::{self, client_entry, legacy_client_account, ClientCredentials};
 use crate::kaiser::{self, Environment, KaiserQuirks};
-use crate::session::{client_auth, now, Context, Sessions};
+use crate::session::{client_auth, now, Context};
 
 pub fn run(ctx: &Ctx, cmd: &AuthCmd) -> Result<(), CliError> {
     match cmd {
@@ -27,6 +27,19 @@ pub fn run(ctx: &Ctx, cmd: &AuthCmd) -> Result<(), CliError> {
 }
 
 fn set_credential(ctx: &Ctx, args: &SetCredentialArgs) -> Result<(), CliError> {
+    let done = store_credential(ctx, args)?;
+    output::emit(ctx.json(), "client-credential", done.clone(), |_| {
+        println!(
+            "Stored the {} client id and secret in kp's vault.",
+            done["environment"].as_str().unwrap_or_default()
+        )
+    });
+    Ok(())
+}
+
+/// `client-credential/v1`'s payload: `environment`, `stored`, and the
+/// `vault_entry` it is stored as.
+fn store_credential(ctx: &Ctx, args: &SetCredentialArgs) -> Result<Value, CliError> {
     if args.source.stdin && args.source.from_env.is_some() {
         return Err(CliError::Usage(
             "pass exactly one of --stdin or --from-env".into(),
@@ -47,12 +60,7 @@ fn set_credential(ctx: &Ctx, args: &SetCredentialArgs) -> Result<(), CliError> {
     } else {
         Some(read_piped(args)?)
     };
-    let state_file = ctx.state_file()?;
-    let mut state = state_file.load()?;
-    if !args.overwrite
-        && (state.has_client(environment)
-            || credentials::read_client(ctx.vault.as_ref(), environment)?.is_some())
-    {
+    if !args.overwrite && credentials::read_client(&ctx.vault, environment)?.is_some() {
         return Err(CliError::ConfirmationRequired(format!(
             "a {} client is already stored",
             environment.as_str()
@@ -63,22 +71,12 @@ fn set_credential(ctx: &Ctx, args: &SetCredentialArgs) -> Result<(), CliError> {
         Some(client) => client,
         None => prompt_client()?,
     };
-    credentials::set_json(ctx.vault.as_ref(), &client_account(environment), &client)?;
-    state.add_client(environment);
-    state_file.save(&state)?;
-    let done = json!({
+    credentials::store_client(&ctx.vault, environment, &client)?;
+    Ok(json!({
         "environment": environment.as_str(),
         "stored": true,
-        "keychain_service": ctx.vault.service(),
-        "keychain_account": client_account(environment),
-    });
-    output::emit(ctx.json(), "client-credential", done, |_| {
-        println!(
-            "Stored the {} client id and secret in the Keychain.",
-            environment.as_str()
-        )
-    });
-    Ok(())
+        "vault_entry": client_entry(environment),
+    }))
 }
 
 /// The id and secret at two prompts that do not echo.
@@ -124,6 +122,7 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
         return Err(CliError::Usage("--timeout is from 1 to 60 minutes".into()));
     }
     let config = ctx.config()?;
+    let profile = ctx.profile(&config)?;
     let base = config.fhir_base();
     kaiser::require_server(environment, &base)?;
     let client = ctx.client(environment)?;
@@ -159,17 +158,40 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
             quirks: &KaiserQuirks,
         },
     )?;
-    if args.no_browser || !(ctx.browser)(pending.url()) {
+    // Chrome in the profile's own browser profile, so one kp.org account's
+    // cookies never sign in another. Kaiser's authorize step is its own
+    // sign-in (pfam.kp.org), so no page opens before it.
+    let window = if args.no_browser {
+        None
+    } else {
+        match (ctx.window)(&profile, pending.url()) {
+            Ok(window) => Some(window),
+            Err(e) => {
+                eprintln!("error: Chrome did not open: {e}");
+                eprintln!(
+                    "warning: any other browser shares its cookies across kp's profiles: sign \
+                     out of kp.org there first, or Kaiser may sign in another profile's account"
+                );
+                None
+            }
+        }
+    };
+    if window.is_some() {
+        ctx.note(format!(
+            "Signing in to Kaiser in Chrome (profile {profile}); waiting for it to finish."
+        ));
+    } else {
         ctx.note("Open this address in a browser and sign in to kp.org:");
         eprintln!("{}", pending.url());
-    } else {
-        ctx.note("Signing in to kp.org in your browser; waiting for it to finish.");
     }
     let code = pending.wait_for_code(Duration::from_secs(args.timeout * 60), |reason| {
         ctx.note(format!(
             "{reason}. Still waiting; press Ctrl-C to start again."
         ))
     })?;
+    // Chrome quits, writing the cookies it received to the profile's
+    // browser profile.
+    drop(window);
     let oauth = OAuthClient::new(t.clone(), BIN, env!("CARGO_PKG_VERSION"));
     let session = block_on(pending.exchange(
         &oauth,
@@ -184,23 +206,22 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
                 .into(),
         ));
     }
-    // The state row first: it is the index `logout` removes Keychain items
-    // by, so a sign-in item never exists without one. A row whose item
-    // failed to store reads as signed out, and is removed if it is new.
+    // The grant first: it is the index `logout` removes vault entries by, so
+    // a session never exists without one. A grant whose session failed to
+    // store reads as signed out, and is removed if it is new.
     let context = Context::from_session(&session, args.label.clone(), rfc3339(now()));
-    let state_file = ctx.state_file()?;
-    let mut state = state_file.load()?;
-    let existed = state
-        .contexts
+    let mut settings = ctx.settings(&ctx.config()?, &profile)?;
+    let existed = settings
+        .grants
         .iter()
         .any(|c| c.organization == context.organization && c.id == context.id);
-    state.upsert_context(context.clone());
-    state_file.save(&state)?;
-    let sessions = Sessions(ctx.vault.clone());
+    settings.upsert(context.clone());
+    ctx.save_settings(&profile, &settings)?;
+    let sessions = ctx.sessions(&profile);
     if let Err(e) = ctx.lock.store_signin(|| sessions.save(&session)) {
         if !existed {
-            state.remove_context(&context.organization, &context.id);
-            let _ = state_file.save(&state);
+            settings.remove(&context.organization, &context.id);
+            let _ = ctx.save_settings(&profile, &settings);
         }
         return Err(e);
     }
@@ -211,10 +232,11 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
         );
     }
     let mut v = AuthLogin::stored(verified).to_json();
+    v["profile"] = profile.as_str().into();
     v["patient"] = serde_json::to_value(context.patient_context()).unwrap_or_default();
     output::emit(ctx.json(), "auth-login", v, |_| {
         println!(
-            "Signed in member {} at {}.",
+            "Signed in member {} at {} in profile {profile}.",
             context.display(),
             context.organization
         )
@@ -231,23 +253,22 @@ fn verify(t: &pk_cli_http::BlockingTransport, session: &SmartSession, patient: &
         .is_ok()
 }
 
-/// `auth-status/v1` with `clients` and `patients` rows. An item that cannot
-/// be read is its row's `error`, not the command's failure.
+/// `auth-status/v1` with `profile`, `clients` and `patients` rows. An entry
+/// that cannot be read is its row's `error`, not the command's failure.
 pub fn status_of(ctx: &Ctx) -> Result<(AuthStatus, Value), CliError> {
-    let state = ctx.state_file()?.load()?;
-    let sessions = Sessions(ctx.vault.clone());
+    let config = ctx.config()?;
+    let profile = ctx.profile(&config)?;
+    let settings = ctx.settings(&config, &profile)?;
+    let sessions = ctx.sessions(&profile);
     let mut clients = Vec::new();
     let mut any_client = false;
     for environment in Environment::ALL {
-        // The Keychain is read only for what the state records, so a
-        // logged-out status raises no prompt. An item that cannot be read is
-        // that row's state, not the command's failure.
+        // The vault reads its key only when the entry exists, so a
+        // logged-out status raises no prompt.
         let mut row = json!({ "environment": environment.as_str(), "stored": false });
-        if state.has_client(environment) {
-            match credentials::read_client(ctx.vault.as_ref(), environment) {
-                Ok(found) => row["stored"] = found.is_some().into(),
-                Err(e) => row["error"] = e.message().into(),
-            }
+        match credentials::read_client(&ctx.vault, environment) {
+            Ok(found) => row["stored"] = found.is_some().into(),
+            Err(e) => row["error"] = e.message().into(),
         }
         any_client |= row["stored"] == true;
         clients.push(row);
@@ -255,12 +276,12 @@ pub fn status_of(ctx: &Ctx) -> Result<(AuthStatus, Value), CliError> {
     let mut rows = Vec::new();
     let mut any_stored = false;
     let mut any_usable = false;
-    for c in &state.contexts {
+    for c in &settings.grants {
         let mut row = serde_json::to_value(c.patient_context()).unwrap_or_default();
         let session = match sessions.load(&c.account()) {
             Ok(session) => session,
             Err(e) => {
-                let e = super::sign_in_again(e, c);
+                let e = super::sign_in_again(e, &profile, c);
                 row["error"] = e.message().into();
                 if let Some(remedy) = e.remedy() {
                     row["remedy"] = remedy.into();
@@ -285,8 +306,23 @@ pub fn status_of(ctx: &Ctx) -> Result<(AuthStatus, Value), CliError> {
     status.credential_in_keychain = Some(any_stored || any_client);
     status.session_valid = Some(any_usable);
     let mut v = status.to_json();
+    v["profile"] = profile.as_str().into();
     v["clients"] = Value::Array(clients);
     v["patients"] = Value::Array(rows);
+    // Sign-ins kp v0.1.x kept are not this profile's until moved.
+    match ctx.state_file()?.load() {
+        Ok(legacy) if !legacy.contexts.is_empty() || !legacy.clients.is_empty() => {
+            v["unmigrated"] = json!({
+                "sign_ins": legacy.contexts.len(),
+                "clients": legacy.clients.len(),
+                "remedy": format!("run `{BIN} profiles migrate <NAME>`"),
+            });
+        }
+        Ok(_) => {}
+        Err(e) => {
+            v["unmigrated"] = json!({ "error": e.message(), "remedy": LEGACY_UNREADABLE });
+        }
+    }
     Ok((status, v))
 }
 
@@ -297,6 +333,10 @@ fn status(ctx: &Ctx) -> Result<(), CliError> {
     if ctx.json() {
         output::json(&v);
     } else {
+        println!(
+            "Profile:       {}",
+            v["profile"].as_str().unwrap_or_default()
+        );
         status.render();
         for c in &clients {
             println!(
@@ -312,7 +352,10 @@ fn status(ctx: &Ctx) -> Result<(), CliError> {
             );
         }
         if rows.is_empty() {
-            println!("Members:       none signed in (`kp auth login --label <WHO>`)");
+            println!(
+                "Members:       none signed in (`kp auth login --profile {} --label <WHO>`)",
+                v["profile"].as_str().unwrap_or_default()
+            );
         } else {
             println!();
             let view: Vec<Value> = rows
@@ -332,101 +375,226 @@ fn status(ctx: &Ctx) -> Result<(), CliError> {
                 .collect();
             output::table(&view);
         }
+        if let Some(e) = v["unmigrated"]["error"].as_str() {
+            println!(
+                "Unmigrated:    kp v0.1.x's state.json does not read: {e} ({LEGACY_UNREADABLE})"
+            );
+        } else if let Some(remedy) = v["unmigrated"]["remedy"].as_str() {
+            println!("Unmigrated:    sign-ins and client credentials from kp v0.1.x ({remedy})");
+        }
     }
     Ok(())
 }
 
+/// What to do about a kp v0.1.x `state.json` that does not read: it is the
+/// only list of the Keychain items that release kept.
+const LEGACY_UNREADABLE: &str = "it lists kp v0.1.x's Keychain items: remove those \
+     (accounts `client/…` and `smart/…`) in Keychain Access, then delete the file";
+
 fn logout(ctx: &Ctx, args: &LogoutArgs) -> Result<(), CliError> {
+    let done = signed_out(ctx, args)?;
+    if let Some(e) = done["legacy_error"]["message"].as_str() {
+        ctx.note(format!(
+            "warning: kp v0.1.x's state.json does not read ({e}), so kept: {LEGACY_UNREADABLE}"
+        ));
+    }
+    output::emit(ctx.json(), "auth-logout", done.clone(), |v| {
+        let members = v["signed_out"].as_array().map_or(0, Vec::len);
+        let profile = v["profile"].as_str().unwrap_or_default();
+        let kept: Vec<&str> = v["shared_kept_for"]
+            .as_array()
+            .map(|a| a.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default();
+        let forgot = if !args.forget {
+            String::new()
+        } else if kept.is_empty() {
+            "; removed the client credentials".into()
+        } else {
+            format!(
+                "; kept the client credentials, which profile(s) {} still use",
+                kept.join(", ")
+            )
+        };
+        println!("Signed out {members} member(s) of profile {profile}{forgot}.");
+    });
+    Ok(())
+}
+
+/// Signs the profile's chosen members out. With `--forget`, and only when
+/// no other profile holds a sign-in, also removes what every profile
+/// shares: the client pair, kp v0.1.x's Keychain items and the
+/// `state.json` listing them, and the vault's key once the vault is empty.
+///
+/// `auth-logout/v1`'s payload: `profile`; `removed`, the vault entries
+/// deleted; `signed_out`, the members' labels; `shared_kept_for`, the other
+/// profiles whose sign-ins kept the shared items; `legacy_removed`, how many
+/// v0.1.x items went; `state_cleared`; `vault_cleared`; and `legacy_error`
+/// (`message`, `remedy`) when the v0.1.x `state.json` does not read, which
+/// then stays.
+fn signed_out(ctx: &Ctx, args: &LogoutArgs) -> Result<Value, CliError> {
     let org = args
         .who
         .org
         .as_deref()
         .map(kaiser::resolve_org)
         .transpose()?;
-    let state_file = ctx.state_file()?;
-    // `--forget` goes on past a state file it cannot read, so the way to
-    // remove kp's credentials never depends on it.
-    let mut state = match state_file.load() {
-        Ok(state) => state,
-        Err(e) if args.forget => {
-            eprintln!(
-                "warning: {} could not be read ({}), so the members it listed are unknown; \
-                 their sign-ins stay in the Keychain as `smart/…` items of service {}",
-                state_file.path().display(),
-                e.message(),
-                ctx.vault.service()
-            );
-            crate::state::State::default()
-        }
-        Err(e) => return Err(e),
-    };
+    let config = ctx.config()?;
+    let profile = ctx.profile(&config)?;
+    let mut settings = ctx.settings(&config, &profile)?;
     let chosen: Vec<Context> = match &args.who.patient {
-        Some(q) => vec![crate::session::pick(&state.contexts, Some(q), org)?.clone()],
-        None => state
-            .contexts
+        Some(q) => vec![crate::session::pick(&settings.grants, Some(q), org, &profile)?.clone()],
+        None => settings
+            .grants
             .iter()
             .filter(|c| org.is_none_or(|e| c.organization == e.org_id()))
             .cloned()
             .collect(),
     };
-    let sessions = Sessions(ctx.vault.clone());
+    let sessions = ctx.sessions(&profile);
     let mut removed = Vec::new();
     for c in &chosen {
         let account = c.account();
         if ctx.lock.forget(|| sessions.delete(&account))? {
-            removed.push(account);
+            removed.push(sessions.entry_name(&account)?);
         }
-        state.remove_context(&c.organization, &c.id);
+        settings.remove(&c.organization, &c.id);
     }
-    state_file.save(&state)?;
-    let mut config_cleared = false;
-    let mut state_cleared = false;
-    if args.forget {
-        for environment in Environment::ALL {
-            let account = client_account(environment);
-            if ctx.vault.delete(&account)? {
-                removed.push(account);
-            }
-        }
-        config_cleared = ctx.store.clear()?;
-        state_cleared = state_file.clear()?;
-    }
-    let done = json!({
-        "removed": removed,
+    ctx.save_settings(&profile, &settings)?;
+    let mut done = json!({
+        "profile": profile.as_str(),
+        "removed": [],
         "signed_out": chosen.iter().map(Context::display).collect::<Vec<_>>(),
-        "config_cleared": config_cleared,
-        "state_cleared": state_cleared,
+        "shared_kept_for": [],
+        "legacy_removed": 0,
+        "state_cleared": false,
+        "vault_cleared": false,
     });
-    output::emit(ctx.json(), "auth-logout", done, |v| {
-        let members = v["signed_out"].as_array().map_or(0, Vec::len);
-        println!(
-            "Signed out {members} member(s){}.",
-            if args.forget {
-                "; removed the client credentials, the config and the state file"
-            } else {
-                ""
+    if args.forget {
+        let others = profiles_holding_sign_ins(ctx, &profile)?;
+        if others.is_empty() {
+            for environment in Environment::ALL {
+                let entry = client_entry(environment);
+                if ctx.vault.delete(&entry)? {
+                    removed.push(entry);
+                }
             }
-        );
-    });
-    Ok(())
+            match forget_legacy(ctx, &profile)? {
+                Ok((count, cleared)) => {
+                    done["legacy_removed"] = count.into();
+                    done["state_cleared"] = cleared.into();
+                }
+                Err(e) => {
+                    done["legacy_error"] =
+                        json!({ "message": e.message(), "remedy": LEGACY_UNREADABLE });
+                }
+            }
+            // With nothing left in the vault, its key item goes too, so kp
+            // leaves nothing in the Keychain.
+            let left = ctx.vault.list()?;
+            if left.names.is_empty() && left.unreadable.is_empty() {
+                ctx.vault.clear()?;
+                done["vault_cleared"] = true.into();
+            }
+        } else {
+            done["shared_kept_for"] = others.into();
+        }
+    }
+    done["removed"] = removed.into();
+    Ok(done)
+}
+
+/// The other profiles that still hold a sign-in: a grant in the config, or
+/// an entry in the vault (a leading `_` is no profile's).
+fn profiles_holding_sign_ins(
+    ctx: &Ctx,
+    profile: &pk_cli_config::profile::ProfileName,
+) -> Result<Vec<String>, CliError> {
+    let config = ctx.config()?;
+    let mut others = std::collections::BTreeSet::new();
+    for p in config.profiles.list().profiles {
+        let name = pk_cli_config::profile::ProfileName::parse(&p.name)?;
+        if &name != profile && !ctx.settings(&config, &name)?.grants.is_empty() {
+            others.insert(p.name);
+        }
+    }
+    for entry in ctx.vault.names()? {
+        if let Some((owner, _)) = entry.split_once('/') {
+            if !owner.starts_with('_') && owner != profile.as_str() {
+                others.insert(owner.to_string());
+            }
+        }
+    }
+    Ok(others.into_iter().collect())
+}
+
+/// Deletes the Keychain items a kp v0.1.x `state.json` lists, each client
+/// pair and each sign-in, then the file: how many items went and whether
+/// there was a file. The inner error is a file that does not read, which
+/// stays, being the only list of its items; an item that cannot be deleted
+/// is the outer error, and the file stays for the next run.
+fn forget_legacy(
+    ctx: &Ctx,
+    profile: &pk_cli_config::profile::ProfileName,
+) -> Result<Result<(usize, bool), CliError>, CliError> {
+    let state_file = ctx.state_file()?;
+    if !state_file.path().exists() {
+        return Ok(Ok((0, false)));
+    }
+    let state = match state_file.load() {
+        Ok(state) => state,
+        Err(e) => return Ok(Err(e)),
+    };
+    let again = format!("run `{BIN} auth logout --profile {profile} --forget` again to finish");
+    let mut count = 0;
+    for environment in Environment::ALL {
+        if ctx
+            .legacy
+            .delete(&legacy_client_account(environment))
+            .map_err(|e| e.with_remedy(again.clone()))?
+        {
+            count += 1;
+        }
+    }
+    for c in &state.contexts {
+        let account = c.account();
+        if ctx
+            .lock
+            .forget(|| ctx.legacy.delete(&account))
+            .map_err(|e| e.with_remedy(again.clone()))?
+        {
+            count += 1;
+        }
+    }
+    Ok(Ok((count, state_file.clear()?)))
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::cli::PatientArgs;
-    use crate::credentials::MemoryVault;
+    use crate::config::Config;
     use pk_cli_auth::refresh_lock::RefreshLock;
+    use pk_cli_auth::vault::{MemoryKeys, Vault};
+    use pk_cli_config::profile::ProfileName;
     use pk_cli_config::ConfigStore;
     use std::sync::Arc;
 
-    fn ctx(dir: &std::path::Path) -> Ctx {
+    /// A context over a scratch directory and an in-memory key, with the
+    /// profile `adult1` configured and selected.
+    pub(crate) fn ctx(dir: &std::path::Path) -> Ctx {
+        let store = ConfigStore::new("kp").with_override(Some(dir.join("config.json")));
+        let mut config = Config::default();
+        config.profiles.add(ProfileName::parse("adult1").unwrap());
+        store.save(&config).unwrap();
         Ctx {
             common: Default::default(),
-            store: ConfigStore::new("kp").with_override(Some(dir.join("config.json"))),
-            vault: Arc::new(MemoryVault::default()),
+            store,
+            profile: Some("adult1".into()),
+            vault: Arc::new(Vault::new(MemoryKeys::new(), dir.join("vault"))),
+            legacy: Box::new(MemoryKeys::new()),
             lock: RefreshLock::at(dir.join("refresh.lock")),
-            browser: Box::new(|_| false),
+            window: Box::new(|_, _| Err(CliError::Other("no browser in unit tests".into()))),
+            forget_browser: Box::new(|_| Ok(false)),
             any_port: true,
         }
     }
@@ -435,10 +603,9 @@ mod tests {
     fn set_credential_refuses_to_replace_without_overwrite() {
         let dir = tempfile::tempdir().unwrap();
         let ctx = ctx(dir.path());
-        let account = client_account(Environment::Production);
-        credentials::set_json(
-            ctx.vault.as_ref(),
-            &account,
+        credentials::store_client(
+            &ctx.vault,
+            Environment::Production,
             &ClientCredentials::new("client-one", "secret-one").unwrap(),
         )
         .unwrap();
@@ -456,34 +623,210 @@ mod tests {
         assert_eq!(err.exit_code(), 6);
         args.overwrite = true;
         set_credential(&ctx, &args).unwrap();
-        let stored = credentials::read_client(ctx.vault.as_ref(), Environment::Production)
+        let stored = credentials::read_client(&ctx.vault, Environment::Production)
             .unwrap()
             .unwrap();
         assert_eq!(stored.client_id, "client-two");
-        assert!(ctx
-            .state_file()
-            .unwrap()
-            .load()
-            .unwrap()
-            .has_client(Environment::Production));
+    }
+
+    fn grant(id: &str, label: &str) -> Context {
+        Context {
+            id: id.into(),
+            organization: Environment::Sandbox.org_id().into(),
+            label: Some(label.into()),
+            relationship: None,
+            fhir_user: None,
+            signed_in_at: "2020-01-01T00:00:00Z".into(),
+        }
+    }
+
+    fn forget() -> LogoutArgs {
+        LogoutArgs {
+            who: PatientArgs::default(),
+            forget: true,
+        }
+    }
+
+    fn keys(v: &Value) -> Vec<&str> {
+        let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        keys
     }
 
     #[test]
-    fn logout_forget_removes_both_clients_and_the_files() {
+    fn set_credential_names_its_environment_and_vault_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ctx(dir.path());
+        std::env::set_var("KP_TEST_PIN_PAIR", "client-one:secret-one");
+        let args = SetCredentialArgs {
+            source: pk_cli_secrets::SecretSourceArgs {
+                stdin: false,
+                from_env: Some("KP_TEST_PIN_PAIR".into()),
+            },
+            sandbox: true,
+            overwrite: false,
+        };
+        assert_eq!(
+            store_credential(&ctx, &args).unwrap(),
+            json!({"environment": "sandbox", "stored": true, "vault_entry": "_client/sandbox"})
+        );
+    }
+
+    #[test]
+    fn logout_forget_keeps_what_profiles_share_while_another_holds_a_sign_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ctx(dir.path());
+        credentials::store_client(
+            &ctx.vault,
+            Environment::Sandbox,
+            &ClientCredentials::new("client-one", "secret-one").unwrap(),
+        )
+        .unwrap();
+        let adult2 = ProfileName::parse("adult2").unwrap();
+        let mut config = ctx.config().unwrap();
+        config.profiles.add(adult2.clone());
+        ctx.save_config(&config).unwrap();
+        let mut settings = crate::config::ProfileSettings::default();
+        settings.upsert(grant("pat-0002", "adult2"));
+        ctx.save_settings(&adult2, &settings).unwrap();
+        let state_file = ctx.state_file().unwrap();
+        state_file.save(&crate::state::State::default()).unwrap();
+
+        let done = signed_out(&ctx, &forget()).unwrap();
+        assert_eq!(
+            keys(&done),
+            [
+                "legacy_removed",
+                "profile",
+                "removed",
+                "shared_kept_for",
+                "signed_out",
+                "state_cleared",
+                "vault_cleared"
+            ]
+        );
+        assert_eq!(done["shared_kept_for"], json!(["adult2"]));
+        assert_eq!(done["removed"], json!([]));
+        assert_eq!(done["vault_cleared"], false);
+        assert!(credentials::read_client(&ctx.vault, Environment::Sandbox)
+            .unwrap()
+            .is_some());
+        assert!(state_file.path().exists());
+
+        // adult2 signed out too: now the shared items go.
+        let mut adult2_ctx = ctx;
+        adult2_ctx.profile = Some("adult2".into());
+        let done = signed_out(&adult2_ctx, &forget()).unwrap();
+        assert_eq!(done["shared_kept_for"], json!([]));
+        assert_eq!(done["removed"], json!(["_client/sandbox"]));
+        assert_eq!(done["state_cleared"], true);
+        assert_eq!(done["vault_cleared"], true);
+    }
+
+    #[test]
+    fn logout_forget_deletes_the_v01_items_its_state_lists_then_the_file() {
+        use pk_cli_auth::vault::KeyStore;
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx(dir.path());
+        let legacy = MemoryKeys::new();
+        let old = grant("pat-0001", "adult1");
+        legacy.set(&old.account(), &Secret::new("{}")).unwrap();
+        legacy
+            .set(
+                &legacy_client_account(Environment::Sandbox),
+                &Secret::new("{}"),
+            )
+            .unwrap();
+        ctx.legacy = Box::new(legacy);
+        let state_file = ctx.state_file().unwrap();
+        state_file
+            .save(&crate::state::State {
+                clients: vec![Environment::Sandbox],
+                contexts: vec![old.clone()],
+            })
+            .unwrap();
+        let done = signed_out(&ctx, &forget()).unwrap();
+        assert_eq!(done["legacy_removed"], 2);
+        assert_eq!(done["state_cleared"], true);
+        assert!(ctx.legacy.get(&old.account()).unwrap().is_none());
+        assert!(ctx
+            .legacy
+            .get(&legacy_client_account(Environment::Sandbox))
+            .unwrap()
+            .is_none());
+        assert!(!state_file.path().exists());
+    }
+
+    #[test]
+    fn logout_forget_keeps_a_v01_state_that_does_not_read_and_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ctx(dir.path());
+        let state_file = ctx.state_file().unwrap();
+        std::fs::write(state_file.path(), "{broken").unwrap();
+        let done = signed_out(&ctx, &forget()).unwrap();
+        assert!(done["legacy_error"]["message"].is_string(), "{done}");
+        assert_eq!(done["legacy_error"]["remedy"], LEGACY_UNREADABLE);
+        assert_eq!(done["state_cleared"], false);
+        assert!(state_file.path().exists());
+    }
+
+    #[test]
+    fn status_counts_what_v01_left_and_reports_a_state_that_does_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ctx(dir.path());
+        let state_file = ctx.state_file().unwrap();
+        let (_, v) = status_of(&ctx).unwrap();
+        assert!(v.get("unmigrated").is_none());
+        state_file
+            .save(&crate::state::State {
+                clients: vec![Environment::Sandbox],
+                contexts: vec![grant("pat-0001", "adult1")],
+            })
+            .unwrap();
+        let (_, v) = status_of(&ctx).unwrap();
+        assert_eq!(
+            v["unmigrated"],
+            json!({"sign_ins": 1, "clients": 1, "remedy": "run `kp profiles migrate <NAME>`"})
+        );
+        std::fs::write(state_file.path(), "{broken").unwrap();
+        let (_, v) = status_of(&ctx).unwrap();
+        assert!(v["unmigrated"]["error"].is_string(), "{v}");
+        assert_eq!(v["unmigrated"]["remedy"], LEGACY_UNREADABLE);
+    }
+
+    #[test]
+    fn config_is_written_owner_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ctx(dir.path());
+        let mut settings = crate::config::ProfileSettings::default();
+        settings.upsert(grant("pat-0001", "adult1"));
+        ctx.save_settings(&ProfileName::parse("adult1").unwrap(), &settings)
+            .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(ctx.store.path().unwrap())
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+    }
+
+    #[test]
+    fn logout_forget_removes_both_clients_the_old_state_and_the_key() {
         let dir = tempfile::tempdir().unwrap();
         let ctx = ctx(dir.path());
         for environment in Environment::ALL {
-            credentials::set_json(
-                ctx.vault.as_ref(),
-                &client_account(environment),
+            credentials::store_client(
+                &ctx.vault,
+                environment,
                 &ClientCredentials::new("client-one", "secret-one").unwrap(),
             )
             .unwrap();
         }
         let state_file = ctx.state_file().unwrap();
-        let mut state = state_file.load().unwrap();
-        state.add_client(Environment::Production);
-        state_file.save(&state).unwrap();
+        state_file.save(&crate::state::State::default()).unwrap();
         logout(
             &ctx,
             &LogoutArgs {
@@ -492,9 +835,29 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(ctx.vault.read("client/production").unwrap().is_none());
-        assert!(ctx.vault.read("client/sandbox").unwrap().is_none());
+        assert!(ctx.vault.names().unwrap().is_empty());
         assert!(!state_file.path().exists());
+        // The profile stays configured: `profiles remove` removes it.
+        assert!(ctx
+            .config()
+            .unwrap()
+            .profiles
+            .contains(&ProfileName::parse("adult1").unwrap()));
+    }
+
+    #[test]
+    fn a_login_command_without_a_profile_is_a_usage_error_before_anything_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx(dir.path());
+        ctx.profile = None;
+        // KP_PROFILE is read too; no test sets it.
+        let err = status_of(&ctx).unwrap_err();
+        assert_eq!(err.exit_code(), 2);
+        assert!(err.to_string().contains("configured: adult1"), "{err}");
+        ctx.profile = Some("adult2".into());
+        let err = status_of(&ctx).unwrap_err();
+        assert_eq!(err.exit_code(), 2);
+        assert_eq!(err.remedy(), Some("add it with `kp profiles add adult2`"));
     }
 
     #[test]

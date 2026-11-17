@@ -53,7 +53,7 @@ mock:
 
 # Offline smoke test on the release binary. It never reads the real keychain:
 # KP_KEYCHAIN_SERVICE names a service that holds nothing, and the config
-# and state live under target/smoke.
+# and the vault live under target/smoke.
 SMOKE_DIR := $(CURDIR)/target/smoke
 SMOKE := KP_KEYCHAIN_SERVICE=piekstra.kp.hermetic-tests \
 	XDG_CONFIG_HOME=$(SMOKE_DIR)/config \
@@ -62,10 +62,14 @@ smoke: release
 	@$(SMOKE) --version >/dev/null
 	@$(SMOKE) info --json >/dev/null
 	@$(SMOKE) completions bash >/dev/null
-	@$(SMOKE) auth status --json >/dev/null
 	@$(SMOKE) orgs list --json >/dev/null
-	@$(SMOKE) patients list --json >/dev/null
-	@for c in "orgs list" "orgs search" "auth set-credential" "auth login" \
+	@$(SMOKE) auth status >/dev/null 2>&1; test $$? -eq 2 || { echo "auth status ran without --profile"; exit 1; }
+	@$(SMOKE) profiles add smoke >/dev/null
+	@$(SMOKE) auth status --profile smoke --json >/dev/null
+	@$(SMOKE) patients list --profile smoke --json >/dev/null
+	@$(SMOKE) profiles remove smoke --force >/dev/null
+	@for c in "orgs list" "orgs search" "profiles list" "profiles add" \
+		"profiles remove" "profiles migrate" "auth set-credential" "auth login" \
 		"auth status" "auth logout" "patients list" "records export" "api" \
 		"config set" "config show"; do \
 		$(SMOKE) $$c --help >/dev/null || exit 1; done

@@ -18,11 +18,15 @@ written approval; kp does neither.
 ## What kp guarantees
 
 - Credentials (the app's client id and secret, the member's tokens) live
-  only in the OS credential store under the service `piekstra.kp`. They are
-  never printed, logged, written to a file, or taken from the command line.
+  only in kp's vault: files encrypted with a key that is one item in the OS
+  credential store under the service `piekstra.kp`. They are never printed,
+  logged, written to a file unencrypted, or taken from the command line.
+- kp's own files (the config with each profile's member ids, the vault)
+  are owner-only and written whole.
 - A token is sent only to Kaiser's API origin; a URL from outside the
   binary must be `https` (or `http` to this machine for a test server)
   before a credential travels with it.
 - kp reads; it never writes to Kaiser.
 - The test suite and `make verify` never read the real Keychain
-  (`KP_KEYCHAIN_SERVICE` points them at an empty service).
+  (`KP_KEYCHAIN_SERVICE` points them at an empty service, and the vault at
+  a directory beside their scratch config).
