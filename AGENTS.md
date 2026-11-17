@@ -56,7 +56,9 @@ Medical records are the most sensitive data a household has.
   `vault-key` in service `piekstra.kp`. So a newly built kp asks macOS once,
   not once per sign-in. Install and upgrade kp only when the owner is
   present, and leave the first run after it to them: that run waits on the
-  one dialog.
+  one dialog. `auth logout --forget` deletes the key item; the vault's
+  directory keeps `.key.id` (a random id) and `.key.lock` (empty), both
+  `0600`, on purpose (cli-common DESIGN §2.5).
 - Kaiser registers each app as a confidential client. Its client id and
   secret are the vault entries `_client/production` and `_client/sandbox`
   (a leading `_` is no profile's), stored by `kp auth set-credential` from a

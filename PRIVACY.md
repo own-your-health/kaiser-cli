@@ -52,7 +52,9 @@ asks it to update itself.
 `kp profiles remove <NAME>` also removes its settings and its Chrome profile.
 `kp auth logout --profile <NAME> --forget`, once no other profile holds a
 sign-in, also removes the app's client credentials and the vault's key,
-leaving kp nothing in the Keychain. To revoke kp's
+leaving kp nothing in the Keychain. The vault's directory then keeps two
+files that hold no secret and no record, readable only by the member:
+`.key.id`, a random id, and `.key.lock`, empty. To revoke kp's
 access at Kaiser, the member removes the app on kp.org under Profile and
 Preferences, Data sharing & authorization, Manage access to health plan
 information.
