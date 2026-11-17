@@ -1,36 +1,22 @@
 //! Owner-only files, written whole: the directory is created with mode
 //! `0700`, and the file goes to a temporary name with mode `0600` and is
-//! renamed over the target (`pk_cli_drive::private_file`), so a reader never
-//! sees half a file and a link planted at the target is replaced, never
-//! written through.
+//! renamed over the target (`pk_cli_core::private_file`, the family's one
+//! owner-only writer), so a reader never sees half a file.
 
 use std::path::Path;
 
+use pk_cli_core::private_file::{self, Replace};
 use pk_cli_core::CliError;
-use pk_cli_drive::private_file::{self, Replace};
 
 pub fn write_private(path: &Path, bytes: &[u8]) -> Result<(), CliError> {
     let dir = path
         .parent()
         .filter(|d| !d.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
-    create_private_dir(dir)?;
+    private_file::create_dir_all(dir)
+        .map_err(|e| CliError::Other(format!("creating {}: {e}", dir.display())))?;
     private_file::write(path, bytes, Replace::Always)
         .map_err(|e| CliError::Other(format!("writing {}: {e}", path.display())))
-}
-
-/// Create `dir` and its parents, owner-only.
-pub fn create_private_dir(dir: &Path) -> Result<(), CliError> {
-    let mut builder = std::fs::DirBuilder::new();
-    builder.recursive(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt;
-        builder.mode(0o700);
-    }
-    builder
-        .create(dir)
-        .map_err(|e| CliError::Other(format!("creating {}: {e}", dir.display())))
 }
 
 #[cfg(test)]
