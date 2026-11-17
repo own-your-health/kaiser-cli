@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.2.2 — 2026-11-17
+
+- On medical-common v0.6.2 and cli-common v0.33.2, every `pk-cli-*` with
+  it. The vault's lock file (`.key.lock`, empty) is created owner-only
+  (`0600`); one a v0.2.0 or v0.2.1 made `0644` is narrowed the next time
+  the lock is taken.
+- PRIVACY.md and AGENTS.md: after `auth logout --forget` clears the vault,
+  its directory keeps two files that hold no secret, `.key.id` (a random
+  id) and `.key.lock` (empty), on purpose (cli-common DESIGN §2.5).
+
 ## v0.2.1 — 2026-11-17
 
 - On medical-common v0.6.1 and cli-common v0.33.1, every `pk-cli-*` with
