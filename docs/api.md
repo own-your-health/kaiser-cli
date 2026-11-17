@@ -157,7 +157,9 @@ except the first row, which a browser sign-in reached:
 Epic's sandbox serves MyChart's login form at that same Start page when no
 session exists. At Kaiser a browser that went straight to authorize ended on
 the "Page Not Found" page, so the member signs in at kp.org first, in the
-same browser. That order has not been tried yet. Every region authorizes
+same browser: `mychart` v0.5.0 opens its sign-in window with kp.org's
+sign-on page first, then the authorize address, in the profile's own Chrome
+profile. That order has not been tried yet. Every region authorizes
 under `KPPolarisPortal`, so the others probably behave the same.
 
 kp.org's own sign-in:
@@ -252,28 +254,32 @@ Epic's EOB returns only what the organization has configured.
 
 Run once `mychart` has a production client id that Kaiser's Northwest
 authorization server accepts (the authorize-URL check above). A member signs
-in through `mychart` v0.4.0 or later at Kaiser Permanente - Northwest
-(`mychart auth login --org 132 --label adult1`), with mychart's
+in through `mychart` v0.5.0 or later at Kaiser Permanente - Northwest, as
+the mychart profile for that kp.org account
+(`mychart auth login --profile adult1-kpnw --org 132 --label adult1`), with mychart's
 `redirect_uri` set to its https page: Epic takes only `https` redirects in
 production, and mychart sends the page from v0.4.0. The read names the
 organization too: the same label may be signed in at another organization,
 and `--patient adult1` alone is then ambiguous (exit 4). One `mychart auth
 login` runs at a time, since the https page forwards to one loopback port.
-The member signs in at kp.org in the same browser before that sign-in
-([Sign-in goes through kp.org](#sign-in-goes-through-kporg)); a sign-in
-without it ends on Kaiser's "Page Not Found" page. Then one read, whose
+mychart's window opens kp.org's sign-on page first: the member signs in
+there with the code kp.org sends, then reloads the approval tab if it shows
+Kaiser's "Page Not Found" page, picks the longest sharing period and
+approves ([Sign-in goes through kp.org](#sign-in-goes-through-kporg)); a
+sign-in without kp.org's ends on that page. Then one read, whose
 output is statuses and counts only. The commands are
-[`mychart`](https://github.com/piekstra/mychart-cli)'s (v0.2.0 or later:
-`patients list` prints `patient-list/v1`, `api GET` one FHIR read as the
-signed-in patient, and a refused read exits 3), not `kp`'s. The read
+[`mychart`](https://github.com/piekstra/mychart-cli)'s (v0.5.0 or later:
+every one takes `--profile`; `patients list` prints `patient-list/v1`,
+`api GET` one FHIR read as the signed-in patient, and a refused read exits
+3), not `kp`'s. The read
 counts what Epic says it left out too: an `OperationOutcome` issue coded
 `suppressed` (Epic code 59204, "Client not authorized for <type> - <API>")
 in a 200 answer, which mychart's sandbox found Epic sends for an API the
 app may not use:
 
 ```sh
-p=$(mychart patients list --json | jq -r '.items[] | select(.label=="adult1" and .organization=="132") | .id')
-mychart api GET "ExplanationOfBenefit?patient=$p&_count=50" --patient adult1 --org 132 --json \
+p=$(mychart patients list --profile adult1-kpnw --json | jq -r '.items[] | select(.label=="adult1" and .organization=="132") | .id')
+mychart api GET "ExplanationOfBenefit?patient=$p&_count=50" --profile adult1-kpnw --patient adult1 --org 132 --json \
   | jq -c '{type: .resourceType, total,
       entries: ([.entry[]?.resource.resourceType] | group_by(.) | map({(.[0]): length}) | add),
       withheld: [.entry[]?.resource | select(.resourceType == "OperationOutcome") | .issue[]? | select(.code == "suppressed")]
