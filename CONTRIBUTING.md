@@ -11,13 +11,18 @@
 
   ```sh
   make install && make mock     # in another terminal
-  export KP_KEYCHAIN_SERVICE=piekstra.kp.dogfood
+  export KP_KEYCHAIN_SERVICE=piekstra.kp.dogfood KP_PROFILE=dogfood
   kp config set fhir_base <the mock's FHIR base>
+  kp profiles add dogfood
   printf '%s' '<the printed pair>' | kp auth set-credential --sandbox --stdin
-  kp auth login --org sandbox
+  kp auth login --org sandbox --no-browser   # then open the printed address
   kp records export -o /tmp/kp-mock
-  kp auth logout --forget
+  kp auth logout --forget && kp profiles remove dogfood --force
   ```
+
+  With `KP_KEYCHAIN_SERVICE` set, the vault lives beside the config
+  (`vault.<service>/`), and `auth logout --forget` removes its key item
+  once nothing is left in it.
 
 - Test data is invented. Never commit a real response, record or export;
   `tests/no_personal_data.rs` and gitleaks check every change.

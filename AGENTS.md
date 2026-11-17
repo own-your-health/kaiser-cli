@@ -44,19 +44,41 @@ Medical records are the most sensitive data a household has.
 
 ## Credentials
 
+- Profiles: one per kp.org account (`adult1`), in the config only. Every
+  command that uses a sign-in (`auth login|status|logout`, `patients`,
+  `records`, `api`) needs `--profile <NAME>` or `KP_PROFILE`; there is no
+  default, and a lone profile is never picked (exit 2, listing them).
+  `orgs`, `profiles`, `config`, `auth set-credential` and `info` take none.
+  A profile's grants (organization, member id, label) are its settings in
+  the config.
+- Every secret is in kp's vault (cli-common `pk_cli_auth::vault`):
+  encrypted files in `~/.config/kp/vault/` under one Keychain item, the key
+  `vault-key` in service `piekstra.kp`. So a newly built kp asks macOS once,
+  not once per sign-in. Install and upgrade kp only when the owner is
+  present, and leave the first run after it to them: that run waits on the
+  one dialog.
 - Kaiser registers each app as a confidential client. Its client id and
-  secret are one Keychain item per environment: service `piekstra.kp`,
-  account `client/production` or `client/sandbox`, stored by
-  `kp auth set-credential` from a prompt that does not echo, `--stdin` or
-  `--from-env`. Kaiser's terms keep both confidential: never printed,
-  logged, or put in argv.
-- A member's sign-in is pk-med-smart's session, one Keychain item per
-  member: account `smart/<org>/<FHIR patient id>`. Errors never name the
-  account, since it holds the member's id. Renewal runs under the family's
+  secret are the vault entries `_client/production` and `_client/sandbox`
+  (a leading `_` is no profile's), stored by `kp auth set-credential` from a
+  prompt that does not echo, `--stdin` or `--from-env`. Kaiser's terms keep
+  both confidential: never printed, logged, or put in argv.
+- A member's sign-in is pk-med-smart's session, the vault entry
+  `<profile>/<org>/<FHIR patient id>` (`ProfileSessions`). Errors never name
+  it, since it holds the member's id. Renewal runs under the family's
   refresh lock, so two `kp` runs never spend one refresh token twice.
+- The sign-in opens Chrome in the profile's own browser profile
+  (`SignInWindow`, `browser-profile-<profile>`), so one kp.org account's
+  cookies never sign in another; `profiles remove` deletes it. kp never
+  fills Kaiser's sign-in or consent page: kp.org's terms forbid automated
+  access (docs/api.md).
+- kp v0.1.x kept one Keychain item per secret and a `state.json`;
+  `kp profiles migrate <NAME>` moves them into the vault and the profile,
+  locally, each old item costing one dialog, once.
 - Tests and `make verify` never read the real Keychain:
   `KP_KEYCHAIN_SERVICE` names an empty service for the surface tests and
-  `smoke`; the in-process tests use `MemoryVault`.
+  `smoke`, with the vault beside their scratch config; the in-process
+  tests give the vault cli-common's `MemoryKeys` and a temporary
+  directory.
 - If a `kp` call hangs, it waits on a Keychain approval. Stop calling it and
   tell the owner; a retry only raises another dialog.
 
@@ -86,9 +108,12 @@ Medical records are the most sensitive data a household has.
 `make verify` (fmt, clippy, tests, smoke), offline:
 
 - `tests/cli_surface.rs`: the binary's help, exit codes, JSON errors,
-  `info`, completions, `orgs`, `config`, logged-out `auth status`.
+  `info` (with `login-profiles`), completions, `orgs`, `config`,
+  `profiles`, a login command refused without a configured `--profile`,
+  logged-out `auth status`.
 - `tests/e2e.rs`: in process against medical-common's mock server on
-  127.0.0.1, with a stand-in browser and `MemoryVault`: sign-in (discovery
+  127.0.0.1, with a stand-in browser and a vault over `MemoryKeys`, as
+  profile `adult1`: sign-in (discovery
   from the CapabilityStatement, HTTP Basic at the token endpoint, the
   scopes), export counts, `--since`, a refused token renewed once, refused
   and failing searches as skips, a refused renewal (exit 3 with kp's

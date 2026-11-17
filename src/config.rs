@@ -1,11 +1,15 @@
-//! Non-secret settings (`~/.config/kp/config.json`). The client id and secret
-//! Kaiser issues are credentials under Kaiser's developer terms, so they live
-//! in the Keychain (`kp auth set-credential`), never here.
+//! Non-secret settings (`~/.config/kp/config.json`): the redirect port, a
+//! test server's FHIR base, and the profiles, one per kp.org account, each
+//! with the members it signed in. The client id and secret Kaiser issues are
+//! credentials under Kaiser's developer terms, so they live in kp's vault
+//! (`kp auth set-credential`), never here; so do the sign-ins' tokens.
 
+use pk_cli_config::profile::Profiles;
 use pk_cli_core::CliError;
 use serde::{Deserialize, Serialize};
 
 use crate::kaiser::FHIR_BASE;
+use crate::session::Context;
 
 /// The loopback port the sign-in's redirect comes back to. Kaiser matches the
 /// redirect URI registered in its developer portal, so the port is fixed.
@@ -28,6 +32,31 @@ pub struct Config {
     /// still has it is refused with that news instead of read as production.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub environment: Option<serde_json::Value>,
+    /// One per kp.org account (`adult1`), each with its [`ProfileSettings`].
+    #[serde(default, skip_serializing_if = "Profiles::is_empty")]
+    pub profiles: Profiles,
+}
+
+/// A profile's settings: the members its kp.org account signed in, one per
+/// (organization, member). Their tokens are in the vault, as
+/// `<profile>/<organization>/<member>`.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct ProfileSettings {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grants: Vec<Context>,
+}
+
+impl ProfileSettings {
+    /// Insert or replace the grant for the same (organization, member).
+    pub fn upsert(&mut self, context: Context) {
+        self.remove(&context.organization, &context.id);
+        self.grants.push(context);
+    }
+
+    pub fn remove(&mut self, organization: &str, id: &str) {
+        self.grants
+            .retain(|c| !(c.organization == organization && c.id == id));
+    }
 }
 
 const ENVIRONMENT_RETIRED: &str = "the sandbox is its own organization: pass `--org kaiser-health-plan-sandbox` (or `--org sandbox`) to `auth login`, `patients list`, `records export` and `api`";

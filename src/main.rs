@@ -18,9 +18,10 @@ fn main() {
 }
 
 fn run(cli: &Cli) -> Result<(), CliError> {
-    let ctx = Ctx::for_binary(cli.common.clone(), cli.config.clone())?;
+    let ctx = Ctx::for_binary(cli.common.clone(), cli.config.clone(), cli.profile.clone())?;
     match &cli.command {
         Command::Orgs(cmd) => commands::orgs::run(&ctx, cmd),
+        Command::Profiles(cmd) => commands::profiles::run(&ctx, cmd),
         Command::Auth(cmd) => commands::auth::run(&ctx, cmd),
         Command::Patients(cmd) => commands::patients::run(&ctx, cmd),
         Command::Records(cmd) => commands::records::run(&ctx, cmd),
@@ -38,7 +39,7 @@ fn run(cli: &Cli) -> Result<(), CliError> {
             Ok(())
         }
         Command::Info => {
-            let info = CliInfo::new(
+            let mut info = CliInfo::new(
                 BIN,
                 env!("CARGO_PKG_VERSION"),
                 &format!("https://github.com/{REPO}"),
@@ -46,12 +47,17 @@ fn run(cli: &Cli) -> Result<(), CliError> {
                     required: true,
                     method: "browser-session".into(),
                     login_hint: Some(format!(
-                        "{BIN} auth set-credential, then {BIN} auth login --label <WHO>"
+                        "{BIN} auth set-credential, {BIN} profiles add <NAME>, then {BIN} auth login --profile <NAME> --label <WHO>"
                     )),
                 },
-                &["orgs", "auth", "patients", "records", "api", "config"],
+                &[
+                    "orgs", "profiles", "auth", "patients", "records", "api", "config",
+                ],
             )
             .with_profiles(PROFILES);
+            // Login commands take --profile, so a records store passes one.
+            info.capabilities
+                .push(pk_med_records::LOGIN_PROFILES.to_string());
             output::json(&serde_json::to_value(&info).expect("CliInfo serializes to JSON"));
             Ok(())
         }

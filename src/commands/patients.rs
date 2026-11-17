@@ -8,7 +8,7 @@ use serde_json::Value;
 use super::Ctx;
 use crate::cli::PatientsCmd;
 use crate::kaiser;
-use crate::session::{now, Sessions};
+use crate::session::now;
 
 pub fn run(ctx: &Ctx, cmd: &PatientsCmd) -> Result<(), CliError> {
     let PatientsCmd::List { status, org } = cmd;
@@ -19,7 +19,7 @@ pub fn run(ctx: &Ctx, cmd: &PatientsCmd) -> Result<(), CliError> {
     }
     let rows = output::rows_of(&list, "items");
     if rows.is_empty() {
-        println!("No member is signed in (`kp auth login --label <WHO>`).");
+        println!("No member is signed in in this profile (`kp auth login --profile <NAME> --label <WHO>`).");
         return Ok(());
     }
     let mut columns = vec!["label", "id", "organization", "relationship"];
@@ -30,19 +30,22 @@ pub fn run(ctx: &Ctx, cmd: &PatientsCmd) -> Result<(), CliError> {
     Ok(())
 }
 
-/// `patient-list/v1` for the members `org` selects. With `status`, each row
+/// `patient-list/v1` for the profile's members `org` selects. With `status`, each row
 /// also has `usable` and `refused` (whether Kaiser refused the sign-in). A
 /// sign-in that cannot be read is that row's `error`, not the command's,
 /// with `usable: false` and `refused: null`, since it is unknown, and its
 /// `remedy` as kp's command.
 pub fn list(ctx: &Ctx, status: bool, org: Option<&str>) -> Result<Value, CliError> {
     let org = org.map(kaiser::resolve_org).transpose()?;
+    let config = ctx.config()?;
+    let profile = ctx.profile(&config)?;
     let contexts: Vec<_> = ctx
-        .contexts()?
+        .settings(&config, &profile)?
+        .grants
         .into_iter()
         .filter(|c| org.is_none_or(|e| c.organization == e.org_id()))
         .collect();
-    let sessions = Sessions(ctx.vault.clone());
+    let sessions = ctx.sessions(&profile);
     let mut list = serde_json::to_value(patient_list(
         contexts.iter().map(|c| c.patient_context()).collect(),
     ))
@@ -67,7 +70,7 @@ pub fn list(ctx: &Ctx, status: bool, org: Option<&str>) -> Result<Value, CliErro
                         .into();
                 }
                 Err(e) => {
-                    let e = super::sign_in_again(e, c);
+                    let e = super::sign_in_again(e, &profile, c);
                     row["usable"] = false.into();
                     row["refused"] = Value::Null;
                     row["error"] = e.message().into();

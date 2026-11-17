@@ -25,4 +25,5 @@ written approval; kp does neither.
   before a credential travels with it.
 - kp reads; it never writes to Kaiser.
 - The test suite and `make verify` never read the real Keychain
-  (`KP_KEYCHAIN_SERVICE` points them at an empty service).
+  (`KP_KEYCHAIN_SERVICE` points them at an empty service, and the vault at
+  a directory beside their scratch config).

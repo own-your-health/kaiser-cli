@@ -1,25 +1,28 @@
-//! The member sign-ins this install holds: one Keychain item per
-//! (organization, member) holding pk-med-smart's `SmartSession`, and a row
-//! for each in `state.json` (`Context`), so `patients list` and a logged-out
-//! `auth status` open no Keychain item.
+//! The member sign-ins a profile holds: pk-med-smart's `SmartSession` in
+//! kp's vault, one entry per (organization, member) named
+//! `<profile>/<organization>/<member>` (`ProfileSessions`), and a grant for
+//! each in the profile's settings (`Context`), so `patients list` reads no
+//! keychain item.
 
 use std::sync::{Arc, Mutex};
 
 use pk_cli_auth::oauth::{ClientAuth, OAuthClient};
 use pk_cli_auth::refresh_lock::RefreshLock;
+use pk_cli_auth::vault::Vault;
+use pk_cli_config::profile::ProfileName;
 use pk_cli_core::transport::Transport;
 use pk_cli_core::CliError;
 use pk_cli_secrets::Secret;
 use pk_med_records::dto::{kind, relationship};
 use pk_med_records::PatientContext;
-use pk_med_smart::{decode_session, Renewer, SessionStore, SmartSession, SESSION_FORMAT};
+use pk_med_smart::{ProfileSessions, Renewer, SessionStore, SmartSession};
 use serde::{Deserialize, Serialize};
 
-use crate::credentials::{ClientCredentials, Vault};
+use crate::credentials::ClientCredentials;
 use crate::kaiser::{Environment, KaiserQuirks};
 
-/// One row of `state.json`'s `contexts`: everything about a sign-in but its
-/// tokens.
+/// One grant in a profile's settings (and a row of a pre-profile
+/// `state.json`): everything about a sign-in but its tokens.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Context {
     /// The member's FHIR `Patient.id` at Kaiser (`--patient`).
@@ -104,12 +107,13 @@ fn relationship_of(fhir_user: Option<&str>, patient: &str) -> Option<String> {
     )
 }
 
-/// Resolve `--patient` (and `--org`) against the held contexts: with none
+/// Resolve `--patient` (and `--org`) against a profile's grants: with none
 /// given and one held, that one.
 pub fn pick<'a>(
     contexts: &'a [Context],
     patient: Option<&str>,
     org: Option<Environment>,
+    profile: &ProfileName,
 ) -> Result<&'a Context, CliError> {
     let narrowed: Vec<Context> = contexts
         .iter()
@@ -121,10 +125,15 @@ pub fn pick<'a>(
         // echoed: it may be a member's FHIR id rather than a label.
         let at = org.unwrap_or(Environment::Production).org_id();
         return Err(CliError::Auth(match org {
-            Some(e) => format!("no member is signed in at {}", e.org_id()),
-            None => "no member is signed in".to_string(),
+            Some(e) => format!(
+                "profile {profile} has no member signed in at {}",
+                e.org_id()
+            ),
+            None => format!("profile {profile} has no member signed in"),
         })
-        .with_remedy(format!("run `kp auth login --org {at} --label <WHO>`")));
+        .with_remedy(format!(
+            "run `kp auth login --profile {profile} --org {at} --label <WHO>`"
+        )));
     }
     let chosen = match patient {
         None if narrowed.len() == 1 => narrowed[0].clone(),
@@ -154,56 +163,6 @@ pub fn pick<'a>(
         .ok_or_else(|| CliError::Other("the chosen member vanished from the list".into()))
 }
 
-/// pk-med-smart's sessions, in kp's Keychain items: read with
-/// `decode_session` (which refuses an item from a newer release) and
-/// written stamped with this release's `SESSION_FORMAT`. An error never
-/// names the account, which holds the member's id.
-#[derive(Clone)]
-pub struct Sessions(pub Arc<dyn Vault>);
-
-impl Sessions {
-    fn hide(&self, e: CliError, account: &str) -> CliError {
-        if !e.message().contains(account) {
-            return e;
-        }
-        let shown = match account.rsplit_once('/') {
-            Some((head, _)) => format!("{head}/…"),
-            None => "a sign-in".to_string(),
-        };
-        let mut hidden = CliError::Keychain(e.message().replace(account, &shown));
-        if let Some(reason) = e.reason() {
-            hidden = hidden.because(reason);
-        }
-        match e.remedy() {
-            Some(remedy) => hidden.with_remedy(remedy.to_string()),
-            None => hidden,
-        }
-    }
-}
-
-impl SessionStore for Sessions {
-    fn load(&self, account: &str) -> Result<Option<SmartSession>, CliError> {
-        let Some(text) = self.0.read(account).map_err(|e| self.hide(e, account))? else {
-            return Ok(None);
-        };
-        decode_session(text.expose()).map(Some)
-    }
-
-    fn save(&self, session: &SmartSession) -> Result<(), CliError> {
-        let account = session.account();
-        let mut value = serde_json::to_value(session)
-            .map_err(|_| CliError::Other("a sign-in did not serialize".into()))?;
-        value["format"] = serde_json::Value::from(SESSION_FORMAT);
-        self.0
-            .write(&account, &Secret::new(value.to_string()))
-            .map_err(|e| self.hide(e, &account))
-    }
-
-    fn delete(&self, account: &str) -> Result<bool, CliError> {
-        self.0.delete(account).map_err(|e| self.hide(e, account))
-    }
-}
-
 /// How kp authenticates to Kaiser's token endpoint: the confidential
 /// client's id and secret as an HTTP Basic header.
 pub fn client_auth(client: &ClientCredentials) -> ClientAuth {
@@ -226,7 +185,8 @@ pub fn now() -> u64 {
 #[derive(Clone)]
 pub struct Live<T> {
     pub account: String,
-    sessions: Sessions,
+    vault: Arc<Vault>,
+    profile: ProfileName,
     lock: RefreshLock,
     oauth: OAuthClient<T>,
     client: ClientCredentials,
@@ -237,13 +197,14 @@ impl<T: Transport + Clone + Send + Sync + 'static> Live<T> {
     /// The context's session, renewed first when its token has lapsed.
     pub fn start(
         transport: T,
-        vault: Arc<dyn Vault>,
+        vault: Arc<Vault>,
+        profile: ProfileName,
         lock: RefreshLock,
         client: ClientCredentials,
         context: &Context,
     ) -> Result<Self, CliError> {
         let account = context.account();
-        let sessions = Sessions(vault);
+        let sessions = ProfileSessions::new(&vault, profile.clone());
         // Where the stored sign-in points is checked before a renewal sends
         // the client id and secret to its token endpoint.
         if let Some(stored) = sessions.load(&account)? {
@@ -255,9 +216,11 @@ impl<T: Transport + Clone + Send + Sync + 'static> Live<T> {
         let auth = client_auth(&client);
         let session =
             Renewer::new(&sessions, &lock, &oauth, &auth, &KaiserQuirks).fresh(&account, now())?;
+        drop(sessions);
         Ok(Live {
             account,
-            sessions,
+            vault,
+            profile,
             lock,
             oauth,
             client,
@@ -280,14 +243,9 @@ impl<T: Transport + Clone + Send + Sync + 'static> Live<T> {
             return Ok(self.session().bearer());
         };
         let auth = client_auth(&self.client);
-        let renewed = Renewer::new(
-            &self.sessions,
-            &self.lock,
-            &self.oauth,
-            &auth,
-            &KaiserQuirks,
-        )
-        .after_refusal(&self.account, refused.expose(), now())?;
+        let sessions = ProfileSessions::new(&self.vault, self.profile.clone());
+        let renewed = Renewer::new(&sessions, &self.lock, &self.oauth, &auth, &KaiserQuirks)
+            .after_refusal(&self.account, refused.expose(), now())?;
         let bearer = renewed.bearer();
         *self.current.lock().expect("the session lock") = renewed;
         Ok(bearer)
@@ -309,60 +267,56 @@ mod tests {
         }
     }
 
+    fn adult1() -> ProfileName {
+        ProfileName::parse("adult1").unwrap()
+    }
+
     #[test]
     fn the_remedy_signs_in_where_the_caller_asked() {
         for who in ["adult1", "pat-0001"] {
-            let err = pick(&[], Some(who), Some(Environment::Sandbox)).unwrap_err();
+            let err = pick(&[], Some(who), Some(Environment::Sandbox), &adult1()).unwrap_err();
             assert_eq!(err.exit_code(), 3);
             assert!(
                 err.to_string().contains("kaiser-health-plan-sandbox"),
                 "{err}"
             );
-            assert!(!err.to_string().contains(who), "{err}");
+            assert!(!err.to_string().contains("pat-0001"), "{err}");
             assert_eq!(
                 err.remedy(),
-                Some("run `kp auth login --org kaiser-health-plan-sandbox --label <WHO>`")
+                Some("run `kp auth login --profile adult1 --org kaiser-health-plan-sandbox --label <WHO>`")
             );
         }
-        let err = pick(&[], None, None).unwrap_err();
+        let err = pick(&[], None, None, &adult1()).unwrap_err();
         assert_eq!(
             err.remedy(),
-            Some("run `kp auth login --org kaiser-health-plan --label <WHO>`")
+            Some("run `kp auth login --profile adult1 --org kaiser-health-plan --label <WHO>`")
         );
-    }
-
-    #[test]
-    fn a_keychain_error_hides_the_account_and_keeps_its_remedy() {
-        let sessions = Sessions(std::sync::Arc::new(
-            crate::credentials::MemoryVault::default(),
-        ));
-        let account = "smart/kaiser-health-plan-sandbox/pat-0001";
-        let e = CliError::Keychain(format!("{account} could not be read"))
-            .with_remedy("unlock the keychain");
-        let hidden = sessions.hide(e, account);
-        assert_eq!(
-            hidden.message(),
-            "smart/kaiser-health-plan-sandbox/… could not be read"
-        );
-        assert_eq!(hidden.remedy(), Some("unlock the keychain"));
-        assert_eq!(hidden.exit_code(), 1);
     }
 
     #[test]
     fn pick_takes_the_only_one_or_asks() {
+        let p = adult1();
         let one = [ctx("pat-0001", Some("adult1"), Environment::Sandbox)];
-        assert_eq!(pick(&one, None, None).unwrap().id, "pat-0001");
-        assert_eq!(pick(&[], None, None).unwrap_err().exit_code(), 3);
+        assert_eq!(pick(&one, None, None, &p).unwrap().id, "pat-0001");
+        assert_eq!(pick(&[], None, None, &p).unwrap_err().exit_code(), 3);
         let two = [
             ctx("pat-0001", Some("adult1"), Environment::Sandbox),
             ctx("pat-0002", Some("child1"), Environment::Sandbox),
         ];
-        assert_eq!(pick(&two, None, None).unwrap_err().exit_code(), 2);
-        assert_eq!(pick(&two, Some("child1"), None).unwrap().id, "pat-0002");
-        assert_eq!(pick(&two, Some("pat-0001"), None).unwrap().id, "pat-0001");
-        assert_eq!(pick(&two, Some("nobody"), None).unwrap_err().exit_code(), 4);
+        assert_eq!(pick(&two, None, None, &p).unwrap_err().exit_code(), 2);
+        assert_eq!(pick(&two, Some("child1"), None, &p).unwrap().id, "pat-0002");
         assert_eq!(
-            pick(&two, None, Some(Environment::Production))
+            pick(&two, Some("pat-0001"), None, &p).unwrap().id,
+            "pat-0001"
+        );
+        assert_eq!(
+            pick(&two, Some("nobody"), None, &p)
+                .unwrap_err()
+                .exit_code(),
+            4
+        );
+        assert_eq!(
+            pick(&two, None, Some(Environment::Production), &p)
                 .unwrap_err()
                 .exit_code(),
             3

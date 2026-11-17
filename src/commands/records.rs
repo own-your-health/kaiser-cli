@@ -53,7 +53,9 @@ fn synthetic(context: &Context) -> bool {
 /// incomplete trailer.
 pub fn export(ctx: &Ctx, args: &ExportArgs) -> Result<Option<CliError>, CliError> {
     validate(args, ctx.json())?;
-    let context = ctx.signed_in(&args.who)?;
+    let config = ctx.config()?;
+    let profile = ctx.profile(&config)?;
+    let context = ctx.signed_in(&config, &profile, &args.who)?;
     let environment = context.environment()?;
     // Refused before the Keychain is opened.
     if args.output.is_some() && !synthetic(&context) {
@@ -63,11 +65,11 @@ pub fn export(ctx: &Ctx, args: &ExportArgs) -> Result<Option<CliError>, CliError
             context.organization
         ))
         .with_remedy(format!(
-            "pipe them into the encrypted vault: `{BIN} records export --patient {} --ndjson | medrec import --from kp`",
+            "pipe them into the encrypted vault: `{BIN} records export --profile {profile} --patient {} --ndjson | medrec import --from kp`",
             context.display()
         )));
     }
-    let live = ctx.live(&context)?;
+    let live = ctx.live(&profile, &context)?;
     let fhir_base = live.fhir_base();
     let t = transport()?;
     let source = live.clone();
@@ -99,7 +101,7 @@ pub fn export(ctx: &Ctx, args: &ExportArgs) -> Result<Option<CliError>, CliError
             let stdout = std::io::stdout();
             let mut w = RecordsWriter::start(std::io::BufWriter::new(stdout.lock()), &header)?;
             let result = export::run(&fhir, &mut w, &context.id, since, &note)
-                .map_err(|e| sign_in_again(e, &context));
+                .map_err(|e| sign_in_again(e, &profile, &context));
             let finished = w.finish(rfc3339(now()), result.as_ref().err())?;
             if result.is_ok() {
                 ctx.note(format!(
@@ -115,7 +117,7 @@ pub fn export(ctx: &Ctx, args: &ExportArgs) -> Result<Option<CliError>, CliError
             let mut file = create_export_file(dir)?;
             let mut w = RecordsWriter::start(std::io::BufWriter::new(file.file()), &header)?;
             let result = export::run(&fhir, &mut w, &context.id, since, &note)
-                .map_err(|e| sign_in_again(e, &context));
+                .map_err(|e| sign_in_again(e, &profile, &context));
             let finished = w.finish(rfc3339(now()), result.as_ref().err())?;
             // A complete stream replaces records.ndjson; an incomplete one
             // goes beside it, and the last complete export stays.

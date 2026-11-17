@@ -28,6 +28,7 @@ fn kp(home: &std::path::Path) -> Command {
         .env("XDG_CONFIG_HOME", home.join("config"))
         .env("HOME", home)
         .env_remove("KP_CONFIG")
+        .env_remove("KP_PROFILE")
         .env_remove("NO_COLOR");
     cmd
 }
@@ -54,6 +55,11 @@ fn every_command_renders_help() {
         vec!["orgs", "--help"],
         vec!["orgs", "list", "--help"],
         vec!["orgs", "search", "--help"],
+        vec!["profiles", "--help"],
+        vec!["profiles", "list", "--help"],
+        vec!["profiles", "add", "--help"],
+        vec!["profiles", "remove", "--help"],
+        vec!["profiles", "migrate", "--help"],
         vec!["auth", "--help"],
         vec!["auth", "set-credential", "--help"],
         vec!["auth", "login", "--help"],
@@ -106,6 +112,11 @@ fn info_is_cli_info() {
     assert_eq!(v["name"], "kp");
     assert_eq!(v["auth"]["method"], "browser-session");
     assert_eq!(v["profiles"], json!(["health-records/v1"]));
+    // Login commands take --profile, so medrec passes one.
+    assert!(v["capabilities"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("login-profiles")));
     assert!(v.to_string().contains("piekstra/kaiser-cli"));
 }
 
@@ -140,26 +151,76 @@ fn orgs_list_and_search_emit_org_list() {
 }
 
 #[test]
+fn a_login_command_needs_a_configured_profile_and_never_picks_one() {
+    let home = tmp();
+    // None configured: the remedy adds one.
+    kp(&home)
+        .args(["auth", "status"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("kp profiles add <NAME>"));
+    let v = stdout_json(kp(&home).args(["profiles", "list", "--json"]));
+    assert_eq!(v, json!({"schema": "profile-list/v1", "profiles": []}));
+    kp(&home)
+        .args(["profiles", "add", "adult1"])
+        .assert()
+        .success();
+    // One configured is still not picked for the caller.
+    for args in [
+        vec!["auth", "status"],
+        vec!["auth", "logout"],
+        vec!["auth", "login", "--org", "sandbox"],
+        vec!["patients", "list"],
+        vec!["records", "export", "--ndjson"],
+        vec!["api", "GET", "ExplanationOfBenefit"],
+    ] {
+        kp(&home)
+            .args(&args)
+            .assert()
+            .code(2)
+            .stderr(predicate::str::contains("configured: adult1"));
+    }
+    kp(&home)
+        .args(["auth", "status", "--profile", "adult2"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("kp profiles add adult2"));
+    for bad in ["Adult1", "_client", "a/b"] {
+        kp(&home).args(["profiles", "add", bad]).assert().code(2);
+    }
+    let v = stdout_json(kp(&home).args(["profiles", "list", "--json"]));
+    assert_eq!(v["profiles"], json!([{"name": "adult1"}]));
+}
+
+#[test]
 fn nothing_stored_reads_as_such_without_the_keychain() {
     let home = tmp();
-    let v = stdout_json(kp(&home).args(["auth", "status", "--json"]));
+    kp(&home)
+        .args(["profiles", "add", "adult1"])
+        .assert()
+        .success();
+    let v = stdout_json(kp(&home).args(["auth", "status", "--profile", "adult1", "--json"]));
     assert_eq!(v["schema"], "auth-status/v1");
     assert_eq!(v["required"], true);
     assert_eq!(v["authenticated"], false);
     assert_eq!(v["method"], "browser-session");
     assert_eq!(v["credential_in_keychain"], false);
+    assert_eq!(v["profile"], "adult1");
     assert_eq!(v["clients"].as_array().unwrap().len(), 2);
     assert_eq!(v["patients"], json!([]));
+    assert!(v.get("unmigrated").is_none());
+    // KP_PROFILE stands in for --profile.
     kp(&home)
+        .env("KP_PROFILE", "adult1")
         .args(["auth", "status"])
         .assert()
         .success()
         .stdout(predicate::str::contains("not stored"));
     kp(&home)
-        .args(["auth", "logout", "--json"])
+        .args(["auth", "logout", "--profile", "adult1", "--json"])
         .assert()
         .success();
-    let v = stdout_json(kp(&home).args(["patients", "list", "--json"]));
+    let v = stdout_json(kp(&home).args(["patients", "list", "--profile", "adult1", "--json"]));
     assert_eq!(v["schema"], "patient-list/v1");
     assert_eq!(v["items"], json!([]));
     // With nothing signed in, a read is an auth error before any request.
@@ -167,8 +228,28 @@ fn nothing_stored_reads_as_such_without_the_keychain() {
         vec!["records", "export", "--ndjson"],
         vec!["api", "GET", "ExplanationOfBenefit"],
     ] {
-        kp(&home).args(&args).assert().code(3);
+        kp(&home)
+            .args(&args)
+            .args(["--profile", "adult1"])
+            .assert()
+            .code(3)
+            .stderr(predicate::str::contains("kp auth login --profile adult1"));
     }
+    // Removing it asks; off a terminal without --force that is exit 6.
+    kp(&home)
+        .args(["profiles", "remove", "adult1", "--json"])
+        .assert()
+        .code(6);
+    kp(&home)
+        .args(["profiles", "remove", "adult1", "--force"])
+        .assert()
+        .success();
+    let v = stdout_json(kp(&home).args(["profiles", "list", "--json"]));
+    assert_eq!(v["profiles"], json!([]));
+    // Nothing was ever stored, so kp made no vault.
+    assert!(!home
+        .join("config/kp/vault.piekstra.kp.hermetic-tests")
+        .exists());
 }
 
 #[test]
@@ -204,6 +285,9 @@ fn bad_arguments_are_refused_before_anything_else() {
             2,
         ),
         (vec!["patients", "list", "--org", "nope"], 4),
+        (vec!["profiles", "add", "Adult1"], 2),
+        (vec!["profiles", "migrate", "a/b"], 2),
+        (vec!["profiles", "remove", "nobody", "--force"], 2),
     ] {
         kp(&home).args(&args).assert().code(code);
     }

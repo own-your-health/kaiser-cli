@@ -1,8 +1,8 @@
-//! The non-secret record of what this install keeps in the Keychain, as
-//! `state.json` beside the config: which client registrations are stored,
-//! and a row for each member signed in. `auth status` and `patients list`
-//! read it first, so a command run with nothing stored opens no Keychain
-//! item and raises no prompt.
+//! `state.json` beside the config, as releases before profiles (v0.1.x) kept
+//! it: which client registrations were in the Keychain, one item each, and a
+//! row for each member signed in, one item each. `kp profiles migrate <NAME>`
+//! moves both into the vault and the profile, then removes the file; nothing
+//! else reads it but `auth status`, to say that it is there.
 
 use std::path::{Path, PathBuf};
 

@@ -14,9 +14,10 @@ use [`mychart`](https://github.com/piekstra/mychart-cli) for those.
 
 ## Status
 
-v0.1.7. The sign-in and `records export` are tested against
-medical-common's mock server; the first run against Kaiser's sandbox waits
-on the app's approval at developer.kp.org.
+v0.2.0: one profile per kp.org account, and every secret in one vault. The
+sign-in and `records export` are tested against medical-common's mock
+server; the first run against Kaiser's sandbox waits on the app's approval
+at developer.kp.org.
 
 ## Install
 
@@ -45,7 +46,8 @@ client id and secret confidential, so each household registers its own:
    Benefits and Associated Resources". Kaiser reviews the request by email.
 2. Set the app's redirect URI to `http://127.0.0.1:7469/callback`, for the
    sandbox and for production.
-3. Generate the client id and secret, then store them in the Keychain:
+3. Generate the client id and secret, then store them in kp's vault (one
+   for every profile):
 
 ```sh
 kp auth set-credential              # production; asks for each without echoing it
@@ -53,19 +55,29 @@ kp auth set-credential --sandbox    # the sandbox, with Kaiser's synthetic test 
 op read "op://<vault>/<item>/pair" | kp auth set-credential --stdin   # `<id>:<secret>`
 ```
 
-4. Sign in once per member, in the browser, on kp.org's own pages:
+4. Add a profile for each kp.org account, and sign its members in, on
+   Kaiser's own pages:
 
 ```sh
-kp auth login --label adult1        # opens kp.org; consent; back to this machine
-kp auth login --org sandbox         # one of Kaiser's synthetic test members
+kp profiles add adult1
+kp auth login --profile adult1 --label adult1   # Chrome, in adult1's own browser profile; consent; back here
+kp auth login --profile adult1 --org sandbox    # one of Kaiser's synthetic test members
 ```
 
 A member who acts for family members on kp.org signs in once for each,
-picking them on Kaiser's page, with a label for each (`--label child1`).
+picking them on Kaiser's page, with a label for each (`--label child1`), in
+that member's profile. Each profile signs in in its own Chrome profile, so
+one account's kp.org cookies never sign in another. `KP_PROFILE` stands in
+for `--profile`; there is no default.
+
+Coming from kp v0.1.x, `kp profiles migrate <NAME>` moves the sign-ins and
+client credentials it kept, one Keychain item each, into the vault and the
+profile: no network and no new approval.
 
 ## Use
 
 ```sh
+export KP_PROFILE=adult1                          # or --profile adult1 on each
 kp patients list                                  # who is signed in
 kp records export --ndjson --patient adult1 | medrec import --from kp
 medrec import --from kp                           # the same, run by medrec
@@ -88,13 +100,17 @@ that fixes it.
 | Command | Does |
 |---|---|
 | `kp orgs list`, `kp orgs search <TEXT>` | the health plan and its sandbox (`org-list/v1`) |
-| `kp auth set-credential [--sandbox] [--overwrite]` | store the app's client id and secret |
-| `kp auth login [--org sandbox] [--label <WHO>] [--no-browser] [--timeout <MIN>]` | sign a member in; waits up to `--timeout` minutes (default 10, at most 60) |
-| `kp auth status` | what is stored (`auth-status/v1`), per environment and member; a sign-in that does not read has its `error` and `remedy` |
-| `kp auth logout [--patient <WHO>] [--org <ORG>] [--forget]` | remove sign-ins; `--forget` also the client credentials and settings |
-| `kp patients list [--status] [--org <ORG>]` | the signed-in members (`patient-list/v1`); `--status` reads each sign-in: `usable`, `refused`, and `error` and `remedy` for one that does not read |
-| `kp records export --ndjson\|-o <DIR> [--since <DATE>]` | the member's records as `records-stream/v1`; `-o` for the sandbox only |
-| `kp api GET <PATH>` | one FHIR read as the member |
+| `kp profiles list` | the profiles, one per kp.org account (`profile-list/v1`) |
+| `kp profiles add <NAME>` | add one: 1 to 32 lowercase letters, digits, `-` or `_` |
+| `kp profiles remove <NAME> [--force]` | its sign-ins, its browser profile and its config; asks first |
+| `kp profiles migrate <NAME>` | kp v0.1.x's sign-ins and client credentials into the vault and the profile |
+| `kp auth set-credential [--sandbox] [--overwrite]` | store the app's client id and secret (shared by every profile) |
+| `kp auth login --profile <NAME> [--org sandbox] [--label <WHO>] [--no-browser] [--timeout <MIN>]` | sign a member in; waits up to `--timeout` minutes (default 10, at most 60) |
+| `kp auth status --profile <NAME>` | what is stored (`auth-status/v1`), per environment and member; a sign-in that does not read has its `error` and `remedy` |
+| `kp auth logout --profile <NAME> [--patient <WHO>] [--org <ORG>] [--forget]` | remove the profile's sign-ins; `--forget` also the client credentials, and the vault's key once it holds nothing |
+| `kp patients list --profile <NAME> [--status] [--org <ORG>]` | the profile's members (`patient-list/v1`); `--status` reads each sign-in: `usable`, `refused`, and `error` and `remedy` for one that does not read |
+| `kp records export --profile <NAME> --ndjson\|-o <DIR> [--since <DATE>]` | the member's records as `records-stream/v1`; `-o` for the sandbox only |
+| `kp api --profile <NAME> GET <PATH>` | one FHIR read as the member |
 | `kp config path\|show\|set\|unset` | `redirect_port` (default 7469), `fhir_base` (Kaiser's, or a test server on this machine for the sandbox) |
 | `kp self-update`, `kp completions <SHELL>`, `kp info` | the family's standard commands |
 

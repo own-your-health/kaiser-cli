@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.2.0 — 2026-11-17
+
+Profiles, one per kp.org account, and every secret in one vault, on
+medical-common v0.6.0 and cli-common v0.33.0 (every `pk-cli-*` with it).
+
+- Breaking: `auth login|status|logout`, `patients list`, `records export`
+  and `api` need `--profile <NAME>` (or `KP_PROFILE`). There is no default,
+  and a lone profile is never picked: exit 2, listing the configured ones.
+  `kp profiles list|add|remove|migrate`; `profiles list --json` is
+  `profile-list/v1`, and `profiles remove` asks unless `--force` (exit 6
+  when it cannot ask).
+- Every secret is in kp's vault (`~/.config/kp/vault/`, encrypted under one
+  Keychain item), so a newly built kp asks macOS once rather than once per
+  item: the client pair as `_client/production` and `_client/sandbox`, each
+  sign-in as `<profile>/<org>/<member>`. A profile's members are its
+  settings in the config; `state.json` is no longer written.
+- `kp profiles migrate <NAME>` moves what kp v0.1.x kept (one Keychain item
+  per client pair and sign-in, listed in `state.json`) into the vault and
+  the profile, locally: no network and no new approval.
+- The sign-in opens Chrome in the profile's own browser profile, so one
+  kp.org account's cookies never sign in another; if Chrome does not open,
+  kp prints the address and keeps waiting. `--no-browser` stays.
+- `auth logout --forget` removes the client credentials, a v0.1.x
+  `state.json`, and the vault's key once nothing is left in it; the config
+  and its profiles stay (`profiles remove` removes one).
+- `info` lists the `login-profiles` capability, so medrec passes
+  `--profile`. Every remedy names it (`kp auth login --profile adult1 …`).
+- `auth status --json` carries `profile`, and `unmigrated` when a v0.1.x
+  `state.json` is still there. `auth set-credential --json` names the
+  `vault_entry` in place of the Keychain service and account.
+
 ## v0.1.7 — 2026-11-16
 
 - On medical-common v0.5.0 and cli-common v0.32.0, every `pk-cli-*` with it.
