@@ -306,7 +306,12 @@ a file.
    reviews the request and emails the decision; no time frame is published.
 4. After approval: enter the production and sandbox redirect URIs (rules for
    native or loopback URIs are not published), then "Generate ID/Secret" for
-   production and again for the sandbox. Each secret is shown once.
+   production and again for the sandbox. Each secret is shown once. kp's
+   redirect is `http://127.0.0.1:<port>/callback` on the configured port.
+   Should Kaiser take only `https` there, as Epic does in production,
+   pk-med-smart v0.5.0 can send a registered `https` page that forwards to
+   that loopback (`SmartApp::redirect_uri`); kp would need that page hosted
+   and a setting naming it, which it does not have yet.
 
 No fee is mentioned anywhere on the portal, in the guide or in the terms.
 Kaiser "recommend[s] that your application includes a clear privacy policy"

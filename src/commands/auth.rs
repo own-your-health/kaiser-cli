@@ -140,15 +140,15 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
     kaiser::require_server(environment, &smart.authorization_endpoint)?;
     kaiser::require_server(environment, &smart.token_endpoint)?;
     ctx.lock.before_signin()?;
-    let app = SmartApp {
-        app: BIN.into(),
-        client: client_auth(&client),
-        ports: if ctx.any_port {
+    let app = SmartApp::new(
+        BIN,
+        client_auth(&client),
+        if ctx.any_port {
             Vec::new()
         } else {
             vec![config.redirect_port()]
         },
-    };
+    );
     let pending = begin(
         &app,
         LaunchRequest {
