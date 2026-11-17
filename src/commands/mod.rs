@@ -122,14 +122,11 @@ impl Ctx {
         Ok(config)
     }
 
-    /// Write the config owner-only and whole (`fsutil::write_private`): its
-    /// profiles' grants carry each member's FHIR patient id, and a crash
-    /// mid-write must not lose every profile. `ConfigStore::save` writes
-    /// with the umask's mode, in place.
+    /// Write the config. Its profiles' grants carry each member's FHIR
+    /// patient id, and `ConfigStore::save` (cli-common v0.33.1) writes it
+    /// owner-only and whole, so a crash mid-write loses no profile.
     pub fn save_config(&self, config: &Config) -> Result<(), CliError> {
-        let body = serde_json::to_string_pretty(config)
-            .map_err(|e| CliError::Other(format!("serializing config: {e}")))?;
-        crate::fsutil::write_private(&self.store.path()?, body.as_bytes())
+        self.store.save(config)
     }
 
     /// The profile this command runs as: `--profile`, else `KP_PROFILE`. It

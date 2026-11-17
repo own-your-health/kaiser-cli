@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.2.1 — 2026-11-17
+
+- On medical-common v0.6.1 and cli-common v0.33.1, every `pk-cli-*` with
+  it. `config.json` is written by cli-common's `ConfigStore::save`, which is
+  now owner-only (`0600`) and whole, as kp v0.2.0's own writer was; a
+  symlinked config is written through to its target rather than replaced.
+- kp's remaining owner-only files (a v0.1.x `state.json`) use cli-common's
+  `pk_cli_core::private_file`; kp no longer depends on `pk-cli-drive`.
+
 ## v0.2.0 — 2026-11-17
 
 Profiles, one per kp.org account, and every secret in one vault, on

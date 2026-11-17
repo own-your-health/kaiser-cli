@@ -1230,7 +1230,7 @@ dependencies = [
 
 [[package]]
 name = "kaiser-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -1239,7 +1239,6 @@ dependencies = [
  "pk-cli-browser",
  "pk-cli-config",
  "pk-cli-core",
- "pk-cli-drive",
  "pk-cli-http",
  "pk-cli-secrets",
  "pk-cli-selfupdate",
@@ -1533,8 +1532,8 @@ dependencies = [
 
 [[package]]
 name = "pk-cli-auth"
-version = "0.33.0"
-source = "git+https://github.com/piekstra/cli-common?tag=v0.33.0#a723fa97050e4866097abc8a4a5a1820d2f6c5c9"
+version = "0.33.1"
+source = "git+https://github.com/piekstra/cli-common?tag=v0.33.1#3df3af94c078bc0fdeb1495c49cc618975deee6c"
 dependencies = [
  "chacha20poly1305",
  "clap",
@@ -1549,8 +1548,8 @@ dependencies = [
 
 [[package]]
 name = "pk-cli-browser"
-version = "0.33.0"
-source = "git+https://github.com/piekstra/cli-common?tag=v0.33.0#a723fa97050e4866097abc8a4a5a1820d2f6c5c9"
+version = "0.33.1"
+source = "git+https://github.com/piekstra/cli-common?tag=v0.33.1#3df3af94c078bc0fdeb1495c49cc618975deee6c"
 dependencies = [
  "clap",
  "ctrlc",
@@ -1563,8 +1562,8 @@ dependencies = [
 
 [[package]]
 name = "pk-cli-config"
-version = "0.33.0"
-source = "git+https://github.com/piekstra/cli-common?tag=v0.33.0#a723fa97050e4866097abc8a4a5a1820d2f6c5c9"
+version = "0.33.1"
+source = "git+https://github.com/piekstra/cli-common?tag=v0.33.1#3df3af94c078bc0fdeb1495c49cc618975deee6c"
 dependencies = [
  "pk-cli-core",
  "serde",
@@ -1573,8 +1572,8 @@ dependencies = [
 
 [[package]]
 name = "pk-cli-core"
-version = "0.33.0"
-source = "git+https://github.com/piekstra/cli-common?tag=v0.33.0#a723fa97050e4866097abc8a4a5a1820d2f6c5c9"
+version = "0.33.1"
+source = "git+https://github.com/piekstra/cli-common?tag=v0.33.1#3df3af94c078bc0fdeb1495c49cc618975deee6c"
 dependencies = [
  "clap",
  "libc",
@@ -1584,19 +1583,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "pk-cli-drive"
-version = "0.33.0"
-source = "git+https://github.com/piekstra/cli-common?tag=v0.33.0#a723fa97050e4866097abc8a4a5a1820d2f6c5c9"
-dependencies = [
- "pk-cli-core",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "pk-cli-http"
-version = "0.33.0"
-source = "git+https://github.com/piekstra/cli-common?tag=v0.33.0#a723fa97050e4866097abc8a4a5a1820d2f6c5c9"
+version = "0.33.1"
+source = "git+https://github.com/piekstra/cli-common?tag=v0.33.1#3df3af94c078bc0fdeb1495c49cc618975deee6c"
 dependencies = [
  "clap",
  "pk-cli-core",
@@ -1606,8 +1595,8 @@ dependencies = [
 
 [[package]]
 name = "pk-cli-secrets"
-version = "0.33.0"
-source = "git+https://github.com/piekstra/cli-common?tag=v0.33.0#a723fa97050e4866097abc8a4a5a1820d2f6c5c9"
+version = "0.33.1"
+source = "git+https://github.com/piekstra/cli-common?tag=v0.33.1#3df3af94c078bc0fdeb1495c49cc618975deee6c"
 dependencies = [
  "clap",
  "keyring",
@@ -1620,8 +1609,8 @@ dependencies = [
 
 [[package]]
 name = "pk-cli-selfupdate"
-version = "0.33.0"
-source = "git+https://github.com/piekstra/cli-common?tag=v0.33.0#a723fa97050e4866097abc8a4a5a1820d2f6c5c9"
+version = "0.33.1"
+source = "git+https://github.com/piekstra/cli-common?tag=v0.33.1#3df3af94c078bc0fdeb1495c49cc618975deee6c"
 dependencies = [
  "clap",
  "flate2",
@@ -1634,8 +1623,8 @@ dependencies = [
 
 [[package]]
 name = "pk-med-fhir"
-version = "0.6.0"
-source = "git+https://github.com/piekstra/medical-common?tag=v0.6.0#cef68b1ffad27f2fa38ca913743fec810bdffd91"
+version = "0.6.1"
+source = "git+https://github.com/piekstra/medical-common?tag=v0.6.1#d24fcce16f0be28c670e757c6507f9ca2a8754fd"
 dependencies = [
  "base64 0.22.1",
  "pk-cli-core",
@@ -1647,8 +1636,8 @@ dependencies = [
 
 [[package]]
 name = "pk-med-records"
-version = "0.6.0"
-source = "git+https://github.com/piekstra/medical-common?tag=v0.6.0#cef68b1ffad27f2fa38ca913743fec810bdffd91"
+version = "0.6.1"
+source = "git+https://github.com/piekstra/medical-common?tag=v0.6.1#d24fcce16f0be28c670e757c6507f9ca2a8754fd"
 dependencies = [
  "pk-cli-core",
  "pk-med-fhir",
@@ -1658,8 +1647,8 @@ dependencies = [
 
 [[package]]
 name = "pk-med-smart"
-version = "0.6.0"
-source = "git+https://github.com/piekstra/medical-common?tag=v0.6.0#cef68b1ffad27f2fa38ca913743fec810bdffd91"
+version = "0.6.1"
+source = "git+https://github.com/piekstra/medical-common?tag=v0.6.1#d24fcce16f0be28c670e757c6507f9ca2a8754fd"
 dependencies = [
  "base64 0.22.1",
  "pk-cli-auth",
