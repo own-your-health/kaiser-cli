@@ -37,19 +37,13 @@ fn set_credential(ctx: &Ctx, args: &SetCredentialArgs) -> Result<(), CliError> {
     Ok(())
 }
 
-/// `client-credential/v1`'s payload: `environment`, `stored`, and the
-/// `vault_entry` it is stored as.
 fn store_credential(ctx: &Ctx, args: &SetCredentialArgs) -> Result<Value, CliError> {
     if args.source.stdin && args.source.from_env.is_some() {
         return Err(CliError::Usage(
             "pass exactly one of --stdin or --from-env".into(),
         ));
     }
-    let environment = if args.sandbox {
-        Environment::Sandbox
-    } else {
-        Environment::Production
-    };
+    let environment = environment_of(args);
     let interactive =
         !args.source.stdin && args.source.from_env.is_none() && std::io::stdin().is_terminal();
     // Input that comes from a flag or a pipe is checked before the Keychain
@@ -60,7 +54,29 @@ fn store_credential(ctx: &Ctx, args: &SetCredentialArgs) -> Result<Value, CliErr
     } else {
         Some(read_piped(args)?)
     };
-    if !args.overwrite && credentials::read_client(&ctx.vault, environment)?.is_some() {
+    store_pair(ctx, environment, args.overwrite, piped)
+}
+
+/// The registration `--sandbox` picks: the sandbox's, else production's.
+fn environment_of(args: &SetCredentialArgs) -> Environment {
+    if args.sandbox {
+        Environment::Sandbox
+    } else {
+        Environment::Production
+    }
+}
+
+/// Stores `piped`, or the pair the prompts ask for when there is none,
+/// unless a client is stored for the environment and `overwrite` is not
+/// given. `client-credential/v1`'s payload: `environment`, `stored`, and
+/// the `vault_entry` it is stored as.
+pub fn store_pair(
+    ctx: &Ctx,
+    environment: Environment,
+    overwrite: bool,
+    piped: Option<ClientCredentials>,
+) -> Result<Value, CliError> {
+    if !overwrite && credentials::read_client(&ctx.vault, environment)?.is_some() {
         return Err(CliError::ConfirmationRequired(format!(
             "a {} client is already stored",
             environment.as_str()
@@ -603,26 +619,29 @@ pub(crate) mod tests {
     fn set_credential_refuses_to_replace_without_overwrite() {
         let dir = tempfile::tempdir().unwrap();
         let ctx = ctx(dir.path());
-        credentials::store_client(
-            &ctx.vault,
+        let pair = |id: &str, secret: &str| Some(ClientCredentials::new(id, secret).unwrap());
+        store_pair(
+            &ctx,
             Environment::Production,
-            &ClientCredentials::new("client-one", "secret-one").unwrap(),
+            false,
+            pair("client-one", "secret-one"),
         )
         .unwrap();
-        // A variable only this test reads, so parallel tests do not race.
-        std::env::set_var("KP_TEST_REFUSE_PAIR", "client-two:secret-two");
-        let mut args = SetCredentialArgs {
-            source: pk_cli_secrets::SecretSourceArgs {
-                stdin: false,
-                from_env: Some("KP_TEST_REFUSE_PAIR".into()),
-            },
-            sandbox: false,
-            overwrite: false,
-        };
-        let err = set_credential(&ctx, &args).unwrap_err();
+        let err = store_pair(
+            &ctx,
+            Environment::Production,
+            false,
+            pair("client-two", "secret-two"),
+        )
+        .unwrap_err();
         assert_eq!(err.exit_code(), 6);
-        args.overwrite = true;
-        set_credential(&ctx, &args).unwrap();
+        store_pair(
+            &ctx,
+            Environment::Production,
+            true,
+            pair("client-two", "secret-two"),
+        )
+        .unwrap();
         let stored = credentials::read_client(&ctx.vault, Environment::Production)
             .unwrap()
             .unwrap();
@@ -653,21 +672,47 @@ pub(crate) mod tests {
         keys
     }
 
+    fn source(stdin: bool, from_env: Option<&str>, sandbox: bool) -> SetCredentialArgs {
+        SetCredentialArgs {
+            source: pk_cli_secrets::SecretSourceArgs {
+                stdin,
+                from_env: from_env.map(Into::into),
+            },
+            sandbox,
+            overwrite: false,
+        }
+    }
+
+    #[test]
+    fn sandbox_picks_the_sandbox_registration() {
+        assert_eq!(
+            environment_of(&source(true, None, true)),
+            Environment::Sandbox
+        );
+        assert_eq!(
+            environment_of(&source(true, None, false)),
+            Environment::Production
+        );
+    }
+
+    #[test]
+    fn stdin_and_from_env_together_are_refused_before_any_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ctx(dir.path());
+        // The variable is never set: the refusal comes before it is read.
+        let err =
+            store_credential(&ctx, &source(true, Some("KP_TEST_NEVER_SET"), false)).unwrap_err();
+        assert_eq!(err.exit_code(), 2);
+        assert!(ctx.vault.names().unwrap().is_empty());
+    }
+
     #[test]
     fn set_credential_names_its_environment_and_vault_entry() {
         let dir = tempfile::tempdir().unwrap();
         let ctx = ctx(dir.path());
-        std::env::set_var("KP_TEST_PIN_PAIR", "client-one:secret-one");
-        let args = SetCredentialArgs {
-            source: pk_cli_secrets::SecretSourceArgs {
-                stdin: false,
-                from_env: Some("KP_TEST_PIN_PAIR".into()),
-            },
-            sandbox: true,
-            overwrite: false,
-        };
+        let pair = ClientCredentials::new("client-one", "secret-one").unwrap();
         assert_eq!(
-            store_credential(&ctx, &args).unwrap(),
+            store_pair(&ctx, Environment::Sandbox, false, Some(pair)).unwrap(),
             json!({"environment": "sandbox", "stored": true, "vault_entry": "_client/sandbox"})
         );
     }
