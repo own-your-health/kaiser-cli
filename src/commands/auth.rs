@@ -43,11 +43,7 @@ fn store_credential(ctx: &Ctx, args: &SetCredentialArgs) -> Result<Value, CliErr
             "pass exactly one of --stdin or --from-env".into(),
         ));
     }
-    let environment = if args.sandbox {
-        Environment::Sandbox
-    } else {
-        Environment::Production
-    };
+    let environment = environment_of(args);
     let interactive =
         !args.source.stdin && args.source.from_env.is_none() && std::io::stdin().is_terminal();
     // Input that comes from a flag or a pipe is checked before the Keychain
@@ -59,6 +55,15 @@ fn store_credential(ctx: &Ctx, args: &SetCredentialArgs) -> Result<Value, CliErr
         Some(read_piped(args)?)
     };
     store_pair(ctx, environment, args.overwrite, piped)
+}
+
+/// The registration `--sandbox` picks: the sandbox's, else production's.
+fn environment_of(args: &SetCredentialArgs) -> Environment {
+    if args.sandbox {
+        Environment::Sandbox
+    } else {
+        Environment::Production
+    }
 }
 
 /// Stores `piped`, or the pair the prompts ask for when there is none,
@@ -665,6 +670,40 @@ pub(crate) mod tests {
         let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
         keys.sort_unstable();
         keys
+    }
+
+    fn source(stdin: bool, from_env: Option<&str>, sandbox: bool) -> SetCredentialArgs {
+        SetCredentialArgs {
+            source: pk_cli_secrets::SecretSourceArgs {
+                stdin,
+                from_env: from_env.map(Into::into),
+            },
+            sandbox,
+            overwrite: false,
+        }
+    }
+
+    #[test]
+    fn sandbox_picks_the_sandbox_registration() {
+        assert_eq!(
+            environment_of(&source(true, None, true)),
+            Environment::Sandbox
+        );
+        assert_eq!(
+            environment_of(&source(true, None, false)),
+            Environment::Production
+        );
+    }
+
+    #[test]
+    fn stdin_and_from_env_together_are_refused_before_any_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ctx(dir.path());
+        // The variable is never set: the refusal comes before it is read.
+        let err =
+            store_credential(&ctx, &source(true, Some("KP_TEST_NEVER_SET"), false)).unwrap_err();
+        assert_eq!(err.exit_code(), 2);
+        assert!(ctx.vault.names().unwrap().is_empty());
     }
 
     #[test]
