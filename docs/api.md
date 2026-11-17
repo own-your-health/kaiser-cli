@@ -205,9 +205,13 @@ Epic's EOB returns only what the organization has configured.
 
 Run once `mychart` has a production client id that Kaiser's Northwest
 authorization server accepts (the authorize-URL check above). A member signs
-in through `mychart` v0.4.0 or later at Kaiser Permanente - Northwest, with
-mychart's `redirect_uri` set to its https page: Epic takes only `https`
-redirects in production, and mychart sends the page from v0.4.0. Then one read, whose
+in through `mychart` v0.4.0 or later at Kaiser Permanente - Northwest
+(`mychart auth login --org 132 --label adult1`), with mychart's
+`redirect_uri` set to its https page: Epic takes only `https` redirects in
+production, and mychart sends the page from v0.4.0. The read names the
+organization too: the same label may be signed in at another organization,
+and `--patient adult1` alone is then ambiguous (exit 4). One `mychart auth
+login` runs at a time, since the https page forwards to one loopback port. Then one read, whose
 output is statuses and counts only. The commands are
 [`mychart`](https://github.com/piekstra/mychart-cli)'s (v0.2.0 or later:
 `patients list` prints `patient-list/v1`, `api GET` one FHIR read as the
@@ -218,8 +222,8 @@ in a 200 answer, which mychart's sandbox found Epic sends for an API the
 app may not use:
 
 ```sh
-p=$(mychart patients list --json | jq -r '.items[] | select(.label=="adult1") | .id')
-mychart api GET "ExplanationOfBenefit?patient=$p&_count=50" --patient adult1 --json \
+p=$(mychart patients list --json | jq -r '.items[] | select(.label=="adult1" and .organization=="132") | .id')
+mychart api GET "ExplanationOfBenefit?patient=$p&_count=50" --patient adult1 --org 132 --json \
   | jq -c '{type: .resourceType, total,
       entries: ([.entry[]?.resource.resourceType] | group_by(.) | map({(.[0]): length}) | add),
       withheld: [.entry[]?.resource | select(.resourceType == "OperationOutcome") | .issue[]? | select(.code == "suppressed")]
