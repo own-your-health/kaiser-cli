@@ -4,8 +4,8 @@
 
 - On medical-common v0.5.0 and cli-common v0.32.0, every `pk-cli-*` with it.
   The sign-in builds its app with `SmartApp::new`; what it sends to Kaiser
-  is unchanged (the loopback redirect on the configured port, or any port
-  with `--any-port`).
+  is unchanged: the loopback redirect `http://127.0.0.1:<port>/callback` on
+  the configured `redirect_port`.
 - docs/api.md: what kp needs if Kaiser takes only `https` redirect URIs.
 
 ## v0.1.6 — 2026-11-16
