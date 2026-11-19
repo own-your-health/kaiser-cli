@@ -93,7 +93,8 @@ Medical records are the most sensitive data a household has.
 - Read-only: kp never writes to Kaiser; `api` takes GET only.
 - `records export -o` writes only the sandbox's records to a file, and
   refuses before the Keychain otherwise: a real member's records go to
-  stdout, straight into `medrec import`.
+  stdout, which medrec reads when `medrec import --from kp` runs kp. Errors
+  name a member by label or `<WHO>`, never by FHIR id.
 - Where a sign-in may go is an allowlist (`kaiser::require_server`, on the
   parsed host): `kaiser-health-plan` to Kaiser's server only (https on
   `kp.org`), `kaiser-health-plan-sandbox` to Kaiser's or to a server on

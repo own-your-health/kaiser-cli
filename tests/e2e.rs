@@ -456,6 +456,15 @@ fn a_production_member_is_not_written_to_a_plain_file() {
     )
     .unwrap_err();
     assert_eq!(err.exit_code(), 2, "{err}");
+    let remedy = err.remedy().unwrap_or_default();
+    assert!(!err.to_string().contains(PATIENT_ID), "{err}");
+    assert!(!remedy.contains(PATIENT_ID), "{remedy}");
+    assert!(
+        remedy.contains(
+            "medrec --profile <FOLDER> import --from kp --from-profile adult1 --patient <WHO>"
+        ),
+        "{remedy}"
+    );
     assert!(mock.requests().is_empty());
 }
 
