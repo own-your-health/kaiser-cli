@@ -194,8 +194,11 @@ mychart v0.5.1, production client id):
 | The window opens, before any sign-in | both tabs at `identityauth.kaiserpermanente.org` (`/as/authorization.oauth2` and `/idp/SSO.saml2`), titled "Sign in \| Kaiser Permanente" |
 | The member signs in once, with the one-time code, picks the longest sharing period and approves | `mychart auth login` exits 0, the sign-in stored, verified and renewable |
 
-Whether kp.org's tab is still needed was not tested: the member signed in
-once. No other entry point was tried: Kaiser's developer terms forbid
+The member signed in once. kp.org's tab is a duplicate: without cookies,
+the lowercase Start page goes through Epic's `Home/Logout`,
+`InsideAsp/Mode`, `Authentication/Login` and `Saml/Login` to Kaiser's own
+sign-in at `identityauth.kaiserpermanente.org/idp/SSO.saml2` (mychart's
+trace, 2026-11-19), so `mychart` v0.5.2 opens only the authorize address. No other entry point was tried: Kaiser's developer terms forbid
 testing its APIs without written approval.
 
 kp.org's own sign-in:
@@ -353,8 +356,12 @@ Run 2026-11-19 at Kaiser Permanente - Northwest, for one member, with
 
 That is the second row's answer: Epic let mychart's app search the Claim
 sub-type and returned no claims. Only the Prior Auth sub-type was withheld,
-which mychart's app does not register and the test's `claim` filter rightly
-does not count. The row's conclusion, that Northwest's claims are not in
+and the test's `claim` filter rightly does not count it. A patient app
+cannot register it: of the EOB APIs, Epic's registration form offers a
+patient app only `.Read (Claim)` and `.Search (Claim)`, and lists
+`ExplanationOfBenefit.Search (Prior Auth)` (id 11054) under Managed Care
+(mychart's registration, 2026-11-16). So every Kaiser search through
+`mychart` carries that 59204 notice. The row's conclusion, that Northwest's claims are not in
 Epic, also needs a member who has had care outside Kaiser, and this record
 does not say whether the member has: zero through Epic cannot tell
 "Northwest's claims are not in Epic" from "this member has none". `kp`'s
