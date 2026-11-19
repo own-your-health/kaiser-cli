@@ -415,7 +415,16 @@ The export stops, with `complete: false` in the trailer and the error's exit
 code, only when the sign-in is refused, the server is unreachable or the
 output fails. Kaiser's guide does not say how long its access and refresh
 tokens last or whether a refresh rotates the refresh token; pk-med-smart
-stores whatever the token response returns.
+stores whatever the token response returns. In the sandbox the access token
+lasted one hour and the consent one year.
+
+Kaiser's guide (V4, "Supported Resources") supports one search, of
+`ExplanationOfBenefit` by `patient`, `_lastUpdated`, `created` and
+`_include`, and reads of the `Coverage`, `Location`, `Organization`,
+`Patient` and `Practitioner` it references. The CapabilityStatement declares
+`Encounter` and `MedicationDispense` too, but the sandbox answers both
+searches with 404. kp still searches them: a 404 is an `unsupported` skip,
+and production may serve what the server declares.
 
 `kaiser-health-plan` (production) and `kaiser-health-plan-sandbox` are
 separate organizations in `orgs list`, with separate client credentials
@@ -426,6 +435,20 @@ records as a real one. A production sign-in goes to Kaiser's server only
 machine (medical-common's mock). kp refuses any other `fhir_base` before
 the client id and secret are read. `-o <DIR>` writes only the sandbox's records to
 a file.
+
+### Kaiser's sandbox
+
+Run 2026-11-19 with kp v0.2.2, the app's sandbox client and the redirect
+`http://127.0.0.1:7469/callback`, all synthetic members:
+
+| Step | Result |
+|---|---|
+| Sign-in | `pfam.kp.org` "Sign in" (`pf.username`, `pf.pass`), then `kpx-consent.kp.org` "Consent Management": one choice per member the account may act for, the data ("ExplanationOfBenefit"), access "until" one year later, an "I have read the statements above" box, then ACCEPT or DENY. Stored and verified |
+| `Pvaluser1`'s export | 7 resources: 1 `ExplanationOfBenefit`, 1 `Coverage`, 1 `Patient`, 1 `Practitioner`, 3 `Organization`; `Encounter` and `MedicationDispense` skipped `unsupported`; complete |
+| `--since 2026-01-01` | no resources (the sandbox's data is older), the same two skips, complete |
+| A proxy: `Pvaluser3` signs in and picks `Pvaluser6`, under 18 | the consent page lists four members, the account's own and the three it acts for. Stored under the label given; the export has 1 `Coverage`, 1 `Patient`, 1 `Organization` and no claims, as the guide hides sensitive claims from proxies and from members under 18 |
+| `relationship` | unknown for both: kp asks for Kaiser's scopes, which have no `openid` or `fhirUser`, so the token names the member and not who signed in |
+| A sign-in nobody finishes | exit 3 at `--timeout`, nothing stored; from v0.2.3 the error names the `kp auth login` command that starts it again |
 
 ### Registration at developer.kp.org
 
