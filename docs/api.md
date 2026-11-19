@@ -6,7 +6,7 @@ member.
 
 | | Clinical records | Health-plan claims |
 |---|---|---|
-| What | US Core / USCDI clinical data: conditions, results, medications, allergies, immunizations, encounters, notes and documents, plus `Coverage`; `ExplanationOfBenefit` only if the region's claims are in Epic, untested ([Claims through Epic](#claims-through-epic)) | CARIN Blue Button `ExplanationOfBenefit` with `Coverage`, `Patient`, `Practitioner`, `Organization`, `Location`; dates of service from 2016-01-01 |
+| What | US Core / USCDI clinical data: conditions, results, medications, allergies, immunizations, encounters, notes and documents, plus `Coverage`; `ExplanationOfBenefit` declared; at Northwest its search returned none for one member ([The result](#the-result)) | CARIN Blue Button `ExplanationOfBenefit` with `Coverage`, `Patient`, `Practitioner`, `Organization`, `Location`; dates of service from 2016-01-01 |
 | Server | Epic (February 2026), one per region, under `fhir.kp.org` | Smile CDR behind Apigee, one for all regions, under `kpx-service-bus.kp.org` |
 | Registration | Epic's, at fhir.epic.com (open.epic). Kaiser: "No approval (beyond the OAuth security flow) is needed for the open.epic API" | Kaiser's own, at developer.kp.org: a "Secure API" that "require[s] an account and approval" |
 | Client | Whatever Epic issues (the `mychart` app: public client, PKCE, Epic dynamic client registration) | Confidential: client id and secret, `client_secret_basic`, PKCE S256 required |
@@ -23,15 +23,18 @@ member.
    provide connectivity details about the application to epic." Each Kaiser
    region is one Epic organization in Epic's directory, so it is an `--org` of
    `mychart`, not a separate CLI.
-2. **Claims (EOB) come through `kp`, unless Kaiser's Epic serves them.** The
+2. **Claims (EOB) come through `kp`.** The
    health plan's Patient Access API is "separate and distinct from the
    open.epic clinical data API" and needs a reviewed registration at Kaiser.
    If the household registers, `kp` implements `health-records/v1` over it so
    `medrec import --from kp` works unchanged. Without that registration,
-   Kaiser clinical records and `Coverage` still arrive through `mychart`. EOBs
-   arrive too if Kaiser's Epic serves them to a patient token: `mychart`
-   v0.2.1 and later search for them, and a refused search is a skip
-   ([Claims through Epic](#claims-through-epic)).
+   Kaiser clinical records and `Coverage` still arrive through `mychart`.
+   Kaiser publishes members' claims for apps through the Patient Access
+   API. Kaiser's Epic declares the EOB API too, but at Northwest its search
+   returned none for one member with the Claim sub-type allowed (2026-11-19,
+   [The result](#the-result)). Whether Epic holds none of Kaiser's claims or
+   that member has none shows only beside `kp`'s count. `mychart` v0.2.1 and
+   later still search for them, and a refused search is a skip.
 
 Epic distributes a patient-facing USCDI app's client id to every community
 member "on a rolling 12-hour cycle" unless the member "has disabled
@@ -49,8 +52,8 @@ client id while running it. On 2026-11-16 `mychart`'s production client id
 was known at Northwest, Mid-Atlantic, Georgia, Northern California and
 Southern California, and not yet at Colorado, Hawaii and Washington.
 
-Whether Kaiser's Epic returns `ExplanationOfBenefit` to a member's token is
-still open ([Claims through Epic](#claims-through-epic)).
+At Northwest, Kaiser's Epic returned no `ExplanationOfBenefit` to a member's
+token on 2026-11-19 ([The result](#the-result)).
 
 ## Clinical: Kaiser's Epic endpoints
 
@@ -181,12 +184,19 @@ project's sign-ins in Northern and Southern California; see Sources). Without
 cookies, Northwest's lowercase page with the query answers a redirect to
 `/fhirnw/Home/Logout`, Epic's first sign-in step, where the capitalized one
 answers 500 (mychart's check, 2026-11-19). `mychart` v0.5.1 sends the
-authorize request itself and opens the lowercase path; a Northwest sign-in
-through it has not been tried yet. No other entry point was tried: Kaiser's
-developer terms forbid testing its APIs without written approval. Until a
-sign-in completes, the claims test below cannot run, and for Kaiser's claims
-the route is `kp`, through the Patient Access API, which waits on the app's
-registration at developer.kp.org.
+authorize request itself, and when the answer is the capitalized Start page
+and that page answers 500, its window opens the lowercase path with the same
+query, after kp.org's sign-on page. That works at Northwest (2026-11-19,
+mychart v0.5.1, production client id):
+
+| Step | Result |
+|---|---|
+| The window opens, before any sign-in | both tabs at `identityauth.kaiserpermanente.org` (`/as/authorization.oauth2` and `/idp/SSO.saml2`), titled "Sign in \| Kaiser Permanente" |
+| The member signs in once, with the one-time code, picks the longest sharing period and approves | `mychart auth login` exits 0, the sign-in stored, verified and renewable |
+
+Whether kp.org's tab is still needed was not tested: the member signed in
+once. No other entry point was tried: Kaiser's developer terms forbid
+testing its APIs without written approval.
 
 kp.org's own sign-in:
 
@@ -278,11 +288,9 @@ Epic's EOB returns only what the organization has configured.
 
 ### The test
 
-It cannot run until a Northwest sign-in through Epic completes (above: the
-capitalized Start path fails; `mychart` v0.5.1's lowercase path is untried).
 Run once `mychart` has a production client id that Kaiser's Northwest
 authorization server accepts (the authorize-URL check above). A member signs
-in through `mychart` v0.5.0 or later at Kaiser Permanente - Northwest, as
+in through `mychart` v0.5.1 or later at Kaiser Permanente - Northwest, as
 the mychart profile for that kp.org account
 (`mychart auth login --profile adult1-kpnw --org 132 --label adult1`), with mychart's
 `redirect_uri` set to its https page: Epic takes only `https` redirects in
@@ -290,11 +298,10 @@ production, and mychart sends the page from v0.4.0. The read names the
 organization too: the same label may be signed in at another organization,
 and `--patient adult1` alone is then ambiguous (exit 4). One `mychart auth
 login` runs at a time, since the https page forwards to one loopback port.
-mychart's window opens kp.org's sign-on page first: the member signs in
-there with the code kp.org sends, then reloads the approval tab if it shows
-Kaiser's "Page Not Found" page, picks the longest sharing period and
-approves ([Sign-in goes through kp.org](#sign-in-goes-through-kporg)); a
-sign-in without kp.org's ends on that page. Then one read, whose
+mychart's window opens kp.org's sign-on page and the lowercase Start page:
+the member signs in with the code Kaiser sends, picks the longest sharing
+period and approves ([Sign-in goes through kp.org](#sign-in-goes-through-kporg)).
+Then one read, whose
 output is statuses and counts only. The commands are
 [`mychart`](https://github.com/piekstra/mychart-cli)'s (v0.5.0 or later:
 every one takes `--profile`; `patients list` prints `patient-list/v1`,
@@ -331,6 +338,29 @@ November 2025 version, but its catalog has no Outside Record
 `ExplanationOfBenefit` API, only `(Claim)` and `(Prior Auth)`, so that
 change leaves the test as it is. A claim Kaiser processed for outside care is
 Kaiser's own record, not an outside one.
+
+### The result
+
+Run 2026-11-19 at Kaiser Permanente - Northwest, for one member, with
+`mychart` v0.5.1:
+
+| Field | Value |
+|---|---|
+| Answer | a `Bundle`, `total` 0, no next page |
+| `ExplanationOfBenefit` entries | 0 |
+| `OperationOutcome` issues | 59204 `suppressed`: "Client not authorized for ExplanationOfBenefit - Prior Auth"; 4101 `processing`: "Resource request returns no results"; 4119 `processing`: the answer "may not contain the entire record" |
+| `withheld.claim` | 0 |
+
+That is the second row's answer: Epic let mychart's app search the Claim
+sub-type and returned no claims. Only the Prior Auth sub-type was withheld,
+which mychart's app does not register and the test's `claim` filter rightly
+does not count. The row's conclusion, that Northwest's claims are not in
+Epic, also needs a member who has had care outside Kaiser, and this record
+does not say whether the member has: zero through Epic cannot tell
+"Northwest's claims are not in Epic" from "this member has none". `kp`'s
+count for the same member shows which. Until then Epic has given no claims,
+so `kp`, through the Patient Access API Kaiser publishes for them, is the
+claims route.
 
 ## Claims: Kaiser's Patient Access API
 
@@ -382,8 +412,8 @@ stores whatever the token response returns.
 
 `kaiser-health-plan` (production) and `kaiser-health-plan-sandbox` are
 separate organizations in `orgs list`, with separate client credentials
-(`client/production`, `client/sandbox`) and sign-ins
-(`smart/<org>/<patient>`), so a sandbox member never lands in the household's
+(the vault entries `_client/production`, `_client/sandbox`) and sign-ins
+(`<profile>/<org>/<patient>`), so a sandbox member never lands in the household's
 records as a real one. A production sign-in goes to Kaiser's server only
 (https on `kp.org`); a sandbox one to Kaiser's or to a server on this
 machine (medical-common's mock). kp refuses any other `fhir_base` before
@@ -398,17 +428,24 @@ a file.
    2026-11-19), and the terms assume a company: the person agreeing is
    "authorized to enter into this Agreement on behalf of your Company", and
    "any and all registration information you provide" must be accurate.
-   Whether a personal address is refused is not published.
-2. Select a persona; add an application: name, description, website. These
+   A personal address was accepted (2026-11-19).
+2. Select a persona (Developer; its API Catalog also lists "KP
+   Interoperability Clinical Data", which sends clinical data to Epic: Route,
+   item 1); add an application: name, description, website. These
    cannot be edited after saving and are shown to members on kp.org's
    revocation screen ("should not include names like test or validation").
 3. In the API Catalog, "Use this API" on "Patient Access API - Explanation of
-   Benefits and Associated Resources" and select the application. Kaiser
-   reviews the request and emails the decision; no time frame is published.
-4. After approval: enter the production and sandbox redirect URIs (rules for
-   native or loopback URIs are not published), then "Generate ID/Secret" for
-   production and again for the sandbox. Each secret is shown once. kp's
-   redirect is `http://127.0.0.1:<port>/callback` on the configured port.
+   Benefits and Associated Resources" (Version 4.0.1 FHIR) and select the
+   application. Kaiser reviews the request and emails the decision; no time
+   frame is published. Until then the production Access Status reads
+   "Pending".
+4. The sandbox needs no approval: its redirect URI and "Generate ID/Secret"
+   work right after the request (2026-11-19), and the portal saved
+   `http://127.0.0.1:7469/callback` there. The production redirect URI field
+   stays read-only until Kaiser approves; then enter it and "Generate
+   ID/Secret" for production. Each secret is shown once. Rules for native or
+   loopback redirect URIs are not published. kp's redirect is
+   `http://127.0.0.1:<port>/callback` on the configured port.
    Should Kaiser take only `https` there, as Epic does in production,
    pk-med-smart v0.5.0 can send a registered `https` page that forwards to
    that loopback (`SmartApp::redirect_uri`); kp would need that page hosted
