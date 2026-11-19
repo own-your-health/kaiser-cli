@@ -2,6 +2,11 @@
 
 ## v0.2.3 — 2026-11-19
 
+- `records export -o` for a real member: the refusal no longer names an
+  unlabelled member's FHIR id, and its remedy is medrec's own command
+  (`medrec --profile <FOLDER> import --from kp --from-profile <NAME> --patient <WHO>`)
+  or `--ndjson` on stdout. It said to pipe into `medrec import`, which
+  reads no standard input.
 - A sign-in that ends without one (no answer within `--timeout`, a declined
   consent, or a code Kaiser refuses to exchange) names the command that
   starts it again, with the same profile, organization, label,

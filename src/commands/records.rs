@@ -35,7 +35,7 @@ fn validate(args: &ExportArgs, json: bool) -> Result<(), CliError> {
     }
     if !args.ndjson && args.output.is_none() {
         return Err(CliError::Usage(
-            "say where the records go: --ndjson for stdout (`| medrec import --from kp`) or -o <DIR>".into(),
+            "say where the records go: --ndjson for stdout (what medrec reads when it runs kp) or -o <DIR> (Kaiser's sandbox only)".into(),
         ));
     }
     Ok(())
@@ -59,14 +59,14 @@ pub fn export(ctx: &Ctx, args: &ExportArgs) -> Result<Option<CliError>, CliError
     let environment = context.environment()?;
     // Refused before the Keychain is opened.
     if args.output.is_some() && !synthetic(&context) {
+        // A label or a placeholder: the member's FHIR id stays out of errors.
+        let who = context.label.as_deref().unwrap_or("<WHO>");
         return Err(CliError::Usage(format!(
-            "-o writes records to a plain file, so it is for Kaiser's sandbox and test servers only; member {} is at {}",
-            context.display(),
+            "-o writes records to a plain file, so it is for Kaiser's sandbox and test servers only; this member is at {}",
             context.organization
         ))
         .with_remedy(format!(
-            "pipe them into the encrypted vault: `{BIN} records export --profile {profile} --patient {} --ndjson | medrec import --from kp`",
-            context.display()
+            "take them on stdout with `{BIN} records export --profile {profile} --patient {who} --ndjson`, or let medrec run kp and file them: `medrec --profile <FOLDER> import --from kp --from-profile {profile} --patient {who}`"
         )));
     }
     let live = ctx.live(&profile, &context)?;
