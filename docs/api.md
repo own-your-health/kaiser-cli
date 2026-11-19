@@ -159,8 +159,34 @@ session exists. At Kaiser a browser that went straight to authorize ended on
 the "Page Not Found" page, so the member signs in at kp.org first, in the
 same browser: `mychart` v0.5.0 opens its sign-in window with kp.org's
 sign-on page first, then the authorize address, in the profile's own Chrome
-profile. That order has not been tried yet. Every region authorizes
-under `KPPolarisPortal`, so the others probably behave the same.
+profile. Every region authorizes under `KPPolarisPortal`, so the others
+probably behave the same.
+
+That order fails too at the capitalized Start path (tried 2026-11-19,
+Kaiser Permanente - Northwest, mychart v0.5.0 and its production client id):
+
+| Step | Result |
+|---|---|
+| The member signs in at kp.org in the sign-in window, with the one-time code | signed in: the window's other tab is at `/mychartnw/Home` |
+| The authorize tab opened with the window, before that sign-in | `/fhirnw/Authentication/OAuth/Start`, titled "Kaiser Permanente - Page Not Found" |
+| The same authorize address again, in a new tab of that window, with the kp.org session live | redirected again to that Start page, with the same title |
+
+The sign-in timed out with nothing stored. The member's MyChart session lives
+under `/mychartnw/`, while Epic's OAuth pages are under `/fhirnw/`, whose own
+login answers 410.
+
+The same path in lowercase, `/<region>/authentication/oauth/start` with the
+same query, is reported to reach Kaiser's sign-in and complete (another
+project's sign-ins in Northern and Southern California; see Sources). Without
+cookies, Northwest's lowercase page with the query answers a redirect to
+`/fhirnw/Home/Logout`, Epic's first sign-in step, where the capitalized one
+answers 500 (mychart's check, 2026-11-19). `mychart` v0.5.1 sends the
+authorize request itself and opens the lowercase path; a Northwest sign-in
+through it has not been tried yet. No other entry point was tried: Kaiser's
+developer terms forbid testing its APIs without written approval. Until a
+sign-in completes, the claims test below cannot run, and for Kaiser's claims
+the route is `kp`, through the Patient Access API, which waits on the app's
+registration at developer.kp.org.
 
 kp.org's own sign-in:
 
@@ -252,6 +278,8 @@ Epic's EOB returns only what the organization has configured.
 
 ### The test
 
+It cannot run until a Northwest sign-in through Epic completes (above: the
+capitalized Start path fails; `mychart` v0.5.1's lowercase path is untried).
 Run once `mychart` has a production client id that Kaiser's Northwest
 authorization server accepts (the authorize-URL check above). A member signs
 in through `mychart` v0.5.0 or later at Kaiser Permanente - Northwest, as
@@ -366,6 +394,11 @@ a file.
 
 1. Create an account (Azure AD B2C sign-up, email verification), accept the
    KP Developer Portal Terms and Conditions and review the Code of Ethics.
+   The sign-up page asks for a "valid company email address" (seen
+   2026-11-19), and the terms assume a company: the person agreeing is
+   "authorized to enter into this Agreement on behalf of your Company", and
+   "any and all registration information you provide" must be accurate.
+   Whether a personal address is refused is not published.
 2. Select a persona; add an application: name, description, website. These
    cannot be edited after saving and are shown to members on kp.org's
    revocation screen ("should not include names like test or validation").
@@ -433,6 +466,10 @@ Kaiser "recommend[s] that your application includes a clear privacy policy"
   `https://healthy.kaiserpermanente.org/content/dam/kporg/final/documents/forms/release-authorization-wa-en.pdf`
   and Northwest's PowerShare guides `.../forms/patient-guide-nw-en.pdf` and
   `.../forms/powershare-mobile-app-nw-en.pdf`
+- syntropy-health PR 22, "Kaiser: work around the broken sign-in page, and
+  follow its paging links" (merged 2026-10-03, read 2026-11-19), for the
+  lowercase Start path:
+  `https://github.com/EnriqueNeyra/syntropy-health/pull/22`
 - Epic API specifications: `https://fhir.epic.com/Specifications`
   (`Media.Read (Study) (R4)`, `Binary.Read (Study) (R4)`)
 - Epic endpoint directory: `https://open.epic.com/MyApps/Endpoints`,
