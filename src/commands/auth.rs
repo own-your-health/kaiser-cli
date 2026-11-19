@@ -129,6 +129,35 @@ fn check_label(label: &str) -> Result<(), CliError> {
     }
 }
 
+/// What a sign-in that ends without one says to do: the same command again,
+/// for the same profile, organization and label.
+fn login_again(
+    profile: &pk_cli_config::profile::ProfileName,
+    environment: Environment,
+    args: &LoginArgs,
+) -> String {
+    let mut command = format!("{BIN} auth login --profile {profile}");
+    if environment == Environment::Sandbox {
+        command.push_str(" --org sandbox");
+    }
+    if let Some(label) = &args.label {
+        command.push_str(&format!(" --label {label}"));
+    }
+    if args.no_browser {
+        command.push_str(" --no-browser");
+    }
+    format!("run `{command}` again")
+}
+
+/// An error keeps the remedy it came with, and gets `again` otherwise.
+fn or_again(e: CliError, again: &str) -> CliError {
+    if e.remedy().is_some() {
+        e
+    } else {
+        e.with_remedy(again)
+    }
+}
+
 fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
     let environment = kaiser::resolve_org(&args.org)?;
     if let Some(label) = &args.label {
@@ -200,11 +229,14 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
         ctx.note("Open this address in a browser and sign in to kp.org:");
         eprintln!("{}", pending.url());
     }
-    let code = pending.wait_for_code(Duration::from_secs(args.timeout * 60), |reason| {
-        ctx.note(format!(
-            "{reason}. Still waiting; press Ctrl-C to start again."
-        ))
-    })?;
+    let again = login_again(&profile, environment, args);
+    let code = pending
+        .wait_for_code(Duration::from_secs(args.timeout * 60), |reason| {
+            ctx.note(format!(
+                "{reason}. Still waiting; press Ctrl-C to start again."
+            ))
+        })
+        .map_err(|e| or_again(e, &again))?;
     // Chrome quits, writing the cookies it received to the profile's
     // browser profile.
     drop(window);
@@ -215,7 +247,8 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
         &code,
         environment.org_id(),
         now(),
-    ))?;
+    ))
+    .map_err(|e| or_again(e, &again))?;
     if session.patient.as_deref().is_none_or(str::is_empty) {
         return Err(CliError::Upstream(
             "Kaiser's token answer named no member (the launch/patient context); nothing was stored"
@@ -837,6 +870,39 @@ pub(crate) mod tests {
         let (_, v) = status_of(&ctx).unwrap();
         assert!(v["unmigrated"]["error"].is_string(), "{v}");
         assert_eq!(v["unmigrated"]["remedy"], LEGACY_UNREADABLE);
+    }
+
+    #[test]
+    fn a_sign_in_that_ends_without_one_names_the_same_command() {
+        let profile = ProfileName::parse("adult1").unwrap();
+        let args = |org: &str, label: Option<&str>, no_browser| LoginArgs {
+            org: org.into(),
+            label: label.map(Into::into),
+            no_browser,
+            timeout: 10,
+        };
+        assert_eq!(
+            login_again(
+                &profile,
+                Environment::Production,
+                &args("kaiser-health-plan", None, false)
+            ),
+            "run `kp auth login --profile adult1` again"
+        );
+        assert_eq!(
+            login_again(
+                &profile,
+                Environment::Sandbox,
+                &args("kaiser-health-plan-sandbox", Some("pvaluser1"), true)
+            ),
+            "run `kp auth login --profile adult1 --org sandbox --label pvaluser1 --no-browser` again"
+        );
+        let kept = CliError::Auth("refused".into()).with_remedy("ask Kaiser");
+        assert_eq!(or_again(kept, "again").remedy(), Some("ask Kaiser"));
+        assert_eq!(
+            or_again(CliError::Auth("timed out".into()), "again").remedy(),
+            Some("again")
+        );
     }
 
     #[test]
