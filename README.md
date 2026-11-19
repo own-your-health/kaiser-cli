@@ -79,10 +79,19 @@ profile: no network and no new approval.
 ```sh
 export KP_PROFILE=adult1                          # or --profile adult1 on each
 kp patients list                                  # who is signed in
-kp records export --ndjson --patient adult1 | medrec import --from kp
-medrec import --from kp                           # the same, run by medrec
+kp records export --ndjson --patient adult1       # records-stream/v1 on stdout
 kp records export --ndjson --since 2026-01-01     # only what changed since
 kp api GET 'ExplanationOfBenefit?patient=<id>'    # one read, the raw answer
+```
+
+[medrec](https://github.com/piekstra/medrec-cli) v0.2.2 or later runs
+`kp records export --profile <NAME>` itself and files what it gets. Its own
+`--profile` names the records folder, and `--from-profile` names kp's
+profile:
+
+```sh
+medrec --profile <FOLDER> import --from kp --from-profile adult1 --patient adult1 --person <WHO>   # the first time
+medrec --profile <FOLDER> import --from kp --from-profile adult1 --patient adult1                  # later: medrec remembers whose they are
 ```
 
 `records export` pulls every claim (`ExplanationOfBenefit`), coverage,
