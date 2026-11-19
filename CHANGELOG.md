@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.2.3 — 2026-11-19
+
+- A sign-in that ends without one (no answer within `--timeout`, a declined
+  consent, or a code Kaiser refuses to exchange) names the command that
+  starts it again, with the same profile, organization, label,
+  `--no-browser` and `--timeout`:
+  ``run `kp auth login --profile adult1 --org sandbox --label pvaluser1` again``.
+  An error that already carries a remedy keeps it. Found on Kaiser's
+  sandbox, where a sign-in that timed out said only "Sign in again".
+- docs/api.md: Kaiser Northwest signs in through Epic with mychart's
+  lowercase Start path; its EOB search returned no claims for one member,
+  so claims come through `kp`. What developer.kp.org's registration showed.
+
 ## v0.2.2 — 2026-11-17
 
 - On medical-common v0.6.2 and cli-common v0.33.2, every `pk-cli-*` with
