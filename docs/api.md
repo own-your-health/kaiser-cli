@@ -169,7 +169,7 @@ mychart v0.5.0 and its production client id):
 |---|---|
 | The member signs in at kp.org in the sign-in window, with the one-time code | signed in: the window's other tab is at `/mychartnw/Home` |
 | The authorize tab opened with the window, before that sign-in | `/fhirnw/Authentication/OAuth/Start`, titled "Kaiser Permanente - Page Not Found" |
-| The same authorize address again, in a new tab of that window, with the kp.org session live | 302 to the same Start page, the same title |
+| The same authorize address again, in a new tab of that window, with the kp.org session live | redirected again to that Start page, with the same title |
 
 So Kaiser's Epic does not let mychart's app sign a Northwest member in, and
 the claims test below cannot run. The member's MyChart session lives under
