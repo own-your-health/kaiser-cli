@@ -159,8 +159,25 @@ session exists. At Kaiser a browser that went straight to authorize ended on
 the "Page Not Found" page, so the member signs in at kp.org first, in the
 same browser: `mychart` v0.5.0 opens its sign-in window with kp.org's
 sign-on page first, then the authorize address, in the profile's own Chrome
-profile. That order has not been tried yet. Every region authorizes
-under `KPPolarisPortal`, so the others probably behave the same.
+profile. Every region authorizes under `KPPolarisPortal`, so the others
+probably behave the same.
+
+That order fails too (tried 2026-11-19, Kaiser Permanente - Northwest,
+mychart v0.5.0 and its production client id):
+
+| Step | Result |
+|---|---|
+| The member signs in at kp.org in the sign-in window, with the one-time code | signed in: the window's other tab is at `/mychartnw/Home` |
+| The authorize tab opened with the window, before that sign-in | `/fhirnw/Authentication/OAuth/Start`, titled "Kaiser Permanente - Page Not Found" |
+| The same authorize address again, in a new tab of that window, with the kp.org session live | 302 to the same Start page, the same title |
+
+So Kaiser's Epic does not let mychart's app sign a Northwest member in, and
+the claims test below cannot run. The member's MyChart session lives under
+`/mychartnw/`, while Epic's OAuth pages are under `/fhirnw/`, whose own login
+answers 410. No other entry point was tried: Kaiser's developer terms forbid
+testing its APIs without written approval. For Kaiser's claims, the route is
+`kp`, through the Patient Access API, which waits on the app's registration
+at developer.kp.org.
 
 kp.org's own sign-in:
 
@@ -252,7 +269,7 @@ Epic's EOB returns only what the organization has configured.
 
 ### The test
 
-Run once `mychart` has a production client id that Kaiser's Northwest
+It cannot run while Kaiser's Epic sign-in fails (above). Run once `mychart` has a production client id that Kaiser's Northwest
 authorization server accepts (the authorize-URL check above). A member signs
 in through `mychart` v0.5.0 or later at Kaiser Permanente - Northwest, as
 the mychart profile for that kp.org account
