@@ -407,8 +407,8 @@ stores whatever the token response returns.
 
 `kaiser-health-plan` (production) and `kaiser-health-plan-sandbox` are
 separate organizations in `orgs list`, with separate client credentials
-(`client/production`, `client/sandbox`) and sign-ins
-(`smart/<org>/<patient>`), so a sandbox member never lands in the household's
+(the vault entries `_client/production`, `_client/sandbox`) and sign-ins
+(`<profile>/<org>/<patient>`), so a sandbox member never lands in the household's
 records as a real one. A production sign-in goes to Kaiser's server only
 (https on `kp.org`); a sandbox one to Kaiser's or to a server on this
 machine (medical-common's mock). kp refuses any other `fhir_base` before
@@ -423,17 +423,24 @@ a file.
    2026-11-19), and the terms assume a company: the person agreeing is
    "authorized to enter into this Agreement on behalf of your Company", and
    "any and all registration information you provide" must be accurate.
-   Whether a personal address is refused is not published.
-2. Select a persona; add an application: name, description, website. These
+   A personal address was accepted (2026-11-19).
+2. Select a persona (Developer; its API Catalog also lists "KP
+   Interoperability Clinical Data", which sends clinical data to Epic: Route,
+   item 1); add an application: name, description, website. These
    cannot be edited after saving and are shown to members on kp.org's
    revocation screen ("should not include names like test or validation").
 3. In the API Catalog, "Use this API" on "Patient Access API - Explanation of
-   Benefits and Associated Resources" and select the application. Kaiser
-   reviews the request and emails the decision; no time frame is published.
-4. After approval: enter the production and sandbox redirect URIs (rules for
-   native or loopback URIs are not published), then "Generate ID/Secret" for
-   production and again for the sandbox. Each secret is shown once. kp's
-   redirect is `http://127.0.0.1:<port>/callback` on the configured port.
+   Benefits and Associated Resources" (Version 4.0.1 FHIR) and select the
+   application. Kaiser reviews the request and emails the decision; no time
+   frame is published. Until then the production Access Status reads
+   "Pending".
+4. The sandbox needs no approval: its redirect URI and "Generate ID/Secret"
+   work right after the request (2026-11-19), and the portal saved
+   `http://127.0.0.1:7469/callback` there. The production redirect URI field
+   stays read-only until Kaiser approves; then enter it and "Generate
+   ID/Secret" for production. Each secret is shown once. Rules for native or
+   loopback redirect URIs are not published. kp's redirect is
+   `http://127.0.0.1:<port>/callback` on the configured port.
    Should Kaiser take only `https` there, as Epic does in production,
    pk-med-smart v0.5.0 can send a registered `https` page that forwards to
    that loopback (`SmartApp::redirect_uri`); kp would need that page hosted
