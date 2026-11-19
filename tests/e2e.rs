@@ -478,7 +478,7 @@ fn a_declined_consent_stores_nothing() {
     assert_eq!(err.exit_code(), 3, "{err}");
     assert_eq!(
         err.remedy(),
-        Some("run `kp auth login --profile adult1 --org sandbox` again")
+        Some("run `kp auth login --profile adult1 --org sandbox --timeout 1` again")
     );
     assert!(settings(&ctx).grants.is_empty());
     assert!(ctx.sessions(&adult1()).accounts().unwrap().is_empty());

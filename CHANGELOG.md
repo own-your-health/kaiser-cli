@@ -4,7 +4,8 @@
 
 - A sign-in that ends without one (no answer within `--timeout`, a declined
   consent, or a code Kaiser refuses to exchange) names the command that
-  starts it again, for the same profile, organization and label:
+  starts it again, with the same profile, organization, label,
+  `--no-browser` and `--timeout`:
   ``run `kp auth login --profile adult1 --org sandbox --label pvaluser1` again``.
   An error that already carries a remedy keeps it. Found on Kaiser's
   sandbox, where a sign-in that timed out said only "Sign in again".

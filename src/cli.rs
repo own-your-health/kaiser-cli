@@ -152,6 +152,9 @@ pub struct SetCredentialArgs {
     pub overwrite: bool,
 }
 
+/// `auth login --timeout`'s default, in minutes.
+pub const LOGIN_TIMEOUT: u64 = 10;
+
 #[derive(Args, Debug)]
 pub struct LoginArgs {
     /// The organization, an id from `kp orgs list`: `kaiser-health-plan`
@@ -167,7 +170,7 @@ pub struct LoginArgs {
     #[arg(long)]
     pub no_browser: bool,
     /// How long to wait for the sign-in to finish, in minutes.
-    #[arg(long, value_name = "MIN", default_value_t = 10)]
+    #[arg(long, value_name = "MIN", default_value_t = LOGIN_TIMEOUT)]
     pub timeout: u64,
 }
 

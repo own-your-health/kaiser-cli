@@ -12,7 +12,7 @@ use pk_med_smart::{begin, discover, LaunchRequest, SessionStore, SmartApp, Smart
 use serde_json::{json, Value};
 
 use super::{rfc3339, transport, Ctx, BIN};
-use crate::cli::{AuthCmd, LoginArgs, LogoutArgs, SetCredentialArgs};
+use crate::cli::{AuthCmd, LoginArgs, LogoutArgs, SetCredentialArgs, LOGIN_TIMEOUT};
 use crate::credentials::{self, client_entry, legacy_client_account, ClientCredentials};
 use crate::kaiser::{self, Environment, KaiserQuirks};
 use crate::session::{client_auth, now, Context};
@@ -145,6 +145,9 @@ fn login_again(
     }
     if args.no_browser {
         command.push_str(" --no-browser");
+    }
+    if args.timeout != LOGIN_TIMEOUT {
+        command.push_str(&format!(" --timeout {}", args.timeout));
     }
     format!("run `{command}` again")
 }
@@ -875,17 +878,17 @@ pub(crate) mod tests {
     #[test]
     fn a_sign_in_that_ends_without_one_names_the_same_command() {
         let profile = ProfileName::parse("adult1").unwrap();
-        let args = |org: &str, label: Option<&str>, no_browser| LoginArgs {
+        let args = |org: &str, label: Option<&str>, no_browser, timeout| LoginArgs {
             org: org.into(),
             label: label.map(Into::into),
             no_browser,
-            timeout: 10,
+            timeout,
         };
         assert_eq!(
             login_again(
                 &profile,
                 Environment::Production,
-                &args("kaiser-health-plan", None, false)
+                &args("kaiser-health-plan", None, false, LOGIN_TIMEOUT)
             ),
             "run `kp auth login --profile adult1` again"
         );
@@ -893,9 +896,17 @@ pub(crate) mod tests {
             login_again(
                 &profile,
                 Environment::Sandbox,
-                &args("kaiser-health-plan-sandbox", Some("pvaluser1"), true)
+                &args("kaiser-health-plan-sandbox", Some("pvaluser1"), true, LOGIN_TIMEOUT)
             ),
             "run `kp auth login --profile adult1 --org sandbox --label pvaluser1 --no-browser` again"
+        );
+        assert_eq!(
+            login_again(
+                &profile,
+                Environment::Production,
+                &args("production", None, false, 30)
+            ),
+            "run `kp auth login --profile adult1 --timeout 30` again"
         );
         let kept = CliError::Auth("refused".into()).with_remedy("ask Kaiser");
         assert_eq!(or_again(kept, "again").remedy(), Some("ask Kaiser"));
