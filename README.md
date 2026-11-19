@@ -14,10 +14,11 @@ use [`mychart`](https://github.com/piekstra/mychart-cli) for those.
 
 ## Status
 
-v0.2.2: one profile per kp.org account, and every secret in one vault. The
+v0.2.3: one profile per kp.org account, and every secret in one vault. The
 sign-in and `records export` are tested against medical-common's mock
-server; the first run against Kaiser's sandbox waits on the app's approval
-at developer.kp.org.
+server and run against Kaiser's sandbox (synthetic members, a proxy among
+them; [docs/api.md](docs/api.md#kaisers-sandbox)). Production waits on
+Kaiser's approval of the app at developer.kp.org.
 
 ## Install
 

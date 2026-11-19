@@ -12,6 +12,10 @@
 - docs/api.md: Kaiser Northwest signs in through Epic with mychart's
   lowercase Start path; its EOB search returned no claims for one member,
   so claims come through `kp`. What developer.kp.org's registration showed.
+- Run against Kaiser's sandbox for the first time: two synthetic members
+  signed in, one as a proxy, and their exports complete. Kaiser serves no
+  `Encounter` or `MedicationDispense` search there (an `unsupported` skip).
+  README, CONTRIBUTING (how to run it) and docs/api.md ("Kaiser's sandbox").
 
 ## v0.2.2 — 2026-11-17
 

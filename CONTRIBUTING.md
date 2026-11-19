@@ -24,6 +24,22 @@
   (`vault.<service>/`), and `auth logout --forget` removes its key item
   once nothing is left in it.
 
+- Then Kaiser's sandbox, with `fhir_base` unset and the app's sandbox pair
+  stored (`kp auth set-credential --sandbox`):
+
+  ```sh
+  kp profiles add sandbox
+  kp auth login --profile sandbox --org sandbox --label pvaluser1
+  kp records export --profile sandbox --patient pvaluser1 -o /tmp/kp-sandbox
+  ```
+
+  Sign in as one of Kaiser's synthetic test members (`Pvaluser1` to
+  `Pvaluser10`; their passwords are in the Test Accounts table of the
+  Patient Access API's EOB Implementation Guide on developer.kp.org), then
+  accept on Kaiser's consent page. `Pvaluser3` acts for three family
+  members: sign in once for each, picking them on the consent page, each
+  with its own `--label`.
+
 - Test data is invented. Never commit a real response, record or export;
   `tests/no_personal_data.rs` and gitleaks check every change.
 - Every change lands through a pull request with a review and green checks.
