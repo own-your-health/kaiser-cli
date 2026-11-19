@@ -6,7 +6,7 @@ member.
 
 | | Clinical records | Health-plan claims |
 |---|---|---|
-| What | US Core / USCDI clinical data: conditions, results, medications, allergies, immunizations, encounters, notes and documents, plus `Coverage`; `ExplanationOfBenefit` declared, but Northwest's search returned none to a member's token ([The result](#the-result)) | CARIN Blue Button `ExplanationOfBenefit` with `Coverage`, `Patient`, `Practitioner`, `Organization`, `Location`; dates of service from 2016-01-01 |
+| What | US Core / USCDI clinical data: conditions, results, medications, allergies, immunizations, encounters, notes and documents, plus `Coverage`; `ExplanationOfBenefit` declared; at Northwest its search returned none for one member ([The result](#the-result)) | CARIN Blue Button `ExplanationOfBenefit` with `Coverage`, `Patient`, `Practitioner`, `Organization`, `Location`; dates of service from 2016-01-01 |
 | Server | Epic (February 2026), one per region, under `fhir.kp.org` | Smile CDR behind Apigee, one for all regions, under `kpx-service-bus.kp.org` |
 | Registration | Epic's, at fhir.epic.com (open.epic). Kaiser: "No approval (beyond the OAuth security flow) is needed for the open.epic API" | Kaiser's own, at developer.kp.org: a "Secure API" that "require[s] an account and approval" |
 | Client | Whatever Epic issues (the `mychart` app: public client, PKCE, Epic dynamic client registration) | Confidential: client id and secret, `client_secret_basic`, PKCE S256 required |
@@ -29,10 +29,12 @@ member.
    If the household registers, `kp` implements `health-records/v1` over it so
    `medrec import --from kp` works unchanged. Without that registration,
    Kaiser clinical records and `Coverage` still arrive through `mychart`.
-   Kaiser's Epic declares the EOB API, but at Northwest its search returned
-   no claims to a member's token with the Claim sub-type allowed
-   (2026-11-19, [The result](#the-result)). `mychart` v0.2.1 and later still
-   search for them, and a refused search is a skip.
+   Kaiser publishes members' claims for apps through the Patient Access
+   API. Kaiser's Epic declares the EOB API too, but at Northwest its search
+   returned none for one member with the Claim sub-type allowed (2026-11-19,
+   [The result](#the-result)). Whether Epic holds none of Kaiser's claims or
+   that member has none shows only beside `kp`'s count. `mychart` v0.2.1 and
+   later still search for them, and a refused search is a skip.
 
 Epic distributes a patient-facing USCDI app's client id to every community
 member "on a rolling 12-hour cycle" unless the member "has disabled
@@ -349,13 +351,16 @@ Run 2026-11-19 at Kaiser Permanente - Northwest, for one member, with
 | `OperationOutcome` issues | 59204 `suppressed`: "Client not authorized for ExplanationOfBenefit - Prior Auth"; 4101 `processing`: "Resource request returns no results"; 4119 `processing`: the answer "may not contain the entire record" |
 | `withheld.claim` | 0 |
 
-That is the second row: Epic let mychart's app search the Claim sub-type
-and returned no claims. Only the Prior Auth sub-type was withheld, which
-mychart's app does not register and the test's `claim` filter rightly does
-not count. So Kaiser's Epic gave no claims, and `kp`, through the Patient
-Access API, is the claims route. Zero through Epic cannot tell "Northwest's
-claims are not in Epic" from "this member has none": `kp`'s count for the
-same member shows which.
+That is the second row's answer: Epic let mychart's app search the Claim
+sub-type and returned no claims. Only the Prior Auth sub-type was withheld,
+which mychart's app does not register and the test's `claim` filter rightly
+does not count. The row's conclusion, that Northwest's claims are not in
+Epic, also needs a member who has had care outside Kaiser, and this record
+does not say whether the member has: zero through Epic cannot tell
+"Northwest's claims are not in Epic" from "this member has none". `kp`'s
+count for the same member shows which. Until then Epic has given no claims,
+so `kp`, through the Patient Access API Kaiser publishes for them, is the
+claims route.
 
 ## Claims: Kaiser's Patient Access API
 
