@@ -16,7 +16,7 @@ kp's (`docs/api.md`, Route).
 |---|---|
 | `src/main.rs` | parsing, dispatch, `info`, exit codes |
 | `src/cli.rs` | the clap tree |
-| `src/commands/*.rs` | one module per command group (`profiles.rs`: `list`, `add`, `remove`, `migrate`; `registration.rs`: the portal's values, the missing-client remedy, each client's `stored` for `info`); `Ctx` in `mod.rs`: the config and its owner-only writes, the `--profile` resolution, the vault and the v0.1.x Keychain, the refresh lock, the sign-in window and `forget_browser` |
+| `src/commands/*.rs` | one module per command group (`profiles.rs`: `list`, `add`, `remove`, `migrate`; `registration.rs`: the portal's values as medical-common's `Registration`, the missing-client error, the `client` member of `info` and `auth status`); `Ctx` in `mod.rs`: the config and its owner-only writes, the `--profile` resolution, the vault and the v0.1.x Keychain, the refresh lock, the sign-in window and `forget_browser` |
 | `src/kaiser.rs` | the two organizations (the health plan and its sandbox): FHIR base, regions, scopes, `--org` resolution and search, `KaiserQuirks` |
 | `src/session.rs` | a signed-in member (`Context`, a profile's grant), picking one, the live token with renewal over the profile's sessions in the vault (`ProfileSessions`, `Live`) |
 | `src/export.rs` | what `records export` pulls, in order, and which failures skip rather than stop |
@@ -67,11 +67,14 @@ Medical records are the most sensitive data a household has.
   both confidential: never printed, logged, or put in argv. Each household
   registers its own app (`docs/registration.md`); no client id ships with
   kp, and none belongs in the repository.
-- `info` and `registration` say whether each client is stored from the
-  vault's file names alone (`credentials::client_on_disk`), so they never
-  read the Keychain; `auth status` reads the entries. A missing client is
-  exit 3 naming the guide, `kp registration` and the `set-credential`
-  command (`registration::missing_client_remedy`).
+- `info`'s `client` member (medical-common DESIGN §3.8) says whether a
+  client is stored, production's before the sandbox's, from the vault's
+  file names alone (`credentials::client_on_disk`), so `info` never reads
+  the Keychain; `auth status` reads the entries, and has each
+  environment's row. A missing client is `pk_med_smart::missing_client`:
+  exit 2, reason `no-client`, naming the environment, the guide,
+  `kp registration` and the `set-credential` command
+  (`registration::missing`).
 - A member's sign-in is pk-med-smart's session, the vault entry
   `<profile>/<org>/<FHIR patient id>` (`ProfileSessions`). Errors never name
   it, since it holds the member's id. Renewal runs under the family's
@@ -119,11 +122,11 @@ Medical records are the most sensitive data a household has.
 `make verify` (fmt, clippy, tests, smoke), offline:
 
 - `tests/cli_surface.rs`: the binary's help, exit codes, JSON errors,
-  `info` (with `login-profiles`, each client's `stored`, the registration
-  guide), `registration` (its values on the configured port), completions,
+  `info` (with `login-profiles`, `registration` and `client`),
+  `registration` (`registration/v1` on the configured port), completions,
   `orgs`, `config`,
   `profiles`, a login command refused without a configured `--profile`,
-  logged-out `auth status` (each client's remedy).
+  logged-out `auth status` (`client`, each environment's remedy).
 - `tests/e2e.rs`: in process against medical-common's mock server on
   127.0.0.1, with a stand-in browser and a vault over `MemoryKeys`, as
   profile `adult1`: sign-in (discovery

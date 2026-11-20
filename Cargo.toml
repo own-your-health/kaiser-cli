@@ -31,10 +31,10 @@ pk-cli-http = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2" 
 pk-cli-selfupdate = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2" }
 # A profile's kept Chrome profile, removed with the profile.
 pk-cli-browser = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2" }
-pk-med-records = { git = "https://github.com/piekstra/medical-common", tag = "v0.6.2" }
-pk-med-fhir = { git = "https://github.com/piekstra/medical-common", tag = "v0.6.2" }
+pk-med-records = { git = "https://github.com/piekstra/medical-common", tag = "v0.6.8" }
+pk-med-fhir = { git = "https://github.com/piekstra/medical-common", tag = "v0.6.8" }
 # `browser`: the sign-in window in the profile's own Chrome profile.
-pk-med-smart = { git = "https://github.com/piekstra/medical-common", tag = "v0.6.2", features = ["browser"] }
+pk-med-smart = { git = "https://github.com/piekstra/medical-common", tag = "v0.6.8", features = ["browser"] }
 clap = { version = "4", features = ["derive", "env"] }
 clap_complete = "4"
 serde = { version = "1", features = ["derive"] }
@@ -44,8 +44,8 @@ url = "2"
 
 [dev-dependencies]
 pk-cli-browser = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2", features = ["test-util"] }
-pk-med-fhir = { git = "https://github.com/piekstra/medical-common", tag = "v0.6.2", features = ["test-util"] }
-pk-med-records = { git = "https://github.com/piekstra/medical-common", tag = "v0.6.2", features = ["test-util"] }
+pk-med-fhir = { git = "https://github.com/piekstra/medical-common", tag = "v0.6.8", features = ["test-util"] }
+pk-med-records = { git = "https://github.com/piekstra/medical-common", tag = "v0.6.8", features = ["test-util"] }
 assert_cmd = "2"
 predicates = "3"
 tempfile = "3"

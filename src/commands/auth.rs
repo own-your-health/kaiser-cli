@@ -321,7 +321,9 @@ pub fn status_of(ctx: &Ctx) -> Result<(AuthStatus, Value), CliError> {
         match credentials::read_client(&ctx.vault, environment) {
             Ok(Some(_)) => row["stored"] = true.into(),
             Ok(None) => {
-                row["remedy"] = super::registration::missing_client_remedy(environment).into()
+                if let Some(remedy) = super::registration::missing(environment).remedy() {
+                    row["remedy"] = remedy.into();
+                }
             }
             Err(e) => row["error"] = e.message().into(),
         }
@@ -360,7 +362,12 @@ pub fn status_of(ctx: &Ctx) -> Result<(AuthStatus, Value), CliError> {
     let mut status = AuthStatus::new(true, any_usable, AuthMethod::BrowserSession);
     status.credential_in_keychain = Some(any_stored || any_client);
     status.session_valid = Some(any_usable);
-    let mut v = status.to_json();
+    let client = super::registration::client_status(|e| {
+        clients
+            .iter()
+            .any(|c| c["environment"] == e.as_str() && c["stored"] == true)
+    });
+    let mut v = pk_med_smart::with_client(&status.to_json(), &client)?;
     v["profile"] = profile.as_str().into();
     v["clients"] = Value::Array(clients);
     v["patients"] = Value::Array(rows);
@@ -393,6 +400,12 @@ fn status(ctx: &Ctx) -> Result<(), CliError> {
             v["profile"].as_str().unwrap_or_default()
         );
         status.render();
+        let client: pk_med_smart::ClientStatus =
+            serde_json::from_value(v["client"].clone()).unwrap_or_default();
+        println!(
+            "{}",
+            client.text(&super::registration::registration(&ctx.config()?))
+        );
         for c in &clients {
             println!(
                 "Client ({}): {}",

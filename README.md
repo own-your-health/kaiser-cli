@@ -135,7 +135,7 @@ that fixes it.
 | `kp profiles add <NAME>` | add one: 1 to 32 lowercase letters, digits, `-` or `_` |
 | `kp profiles remove <NAME> [--force]` | its sign-ins, its browser profile and its config; asks first |
 | `kp profiles migrate <NAME>` | kp v0.1.x's sign-ins and client credentials into the vault and the profile |
-| `kp registration` | what to enter at developer.kp.org, on the configured redirect port, and whether each client is stored (`registration/v1`) |
+| `kp registration` | what to enter at developer.kp.org, on the configured redirect port (`registration/v1`) |
 | `kp auth set-credential [--sandbox] [--overwrite]` | store the app's client id and secret (shared by every profile) |
 | `kp auth login --profile <NAME> [--org sandbox] [--label <WHO>] [--no-browser] [--timeout <MIN>]` | sign a member in; waits up to `--timeout` minutes (default 10, at most 60) |
 | `kp auth status --profile <NAME>` | what is stored (`auth-status/v1`), per environment and member; a sign-in that does not read has its `error` and `remedy`; `unmigrated` counts what kp v0.1.x left (`kp profiles migrate <NAME>` moves it), or has the `error` and `remedy` of a v0.1.x `state.json` that does not read |
@@ -144,7 +144,7 @@ that fixes it.
 | `kp records export --profile <NAME> --ndjson\|-o <DIR> [--since <DATE>]` | the member's records as `records-stream/v1`; `-o` for the sandbox only |
 | `kp api --profile <NAME> GET <PATH>` | one FHIR read as the member |
 | `kp config path\|show\|set\|unset` | `redirect_port` (default 7469), `fhir_base` (Kaiser's, or a test server on this machine for the sandbox) |
-| `kp self-update`, `kp completions <SHELL>`, `kp info` | the family's standard commands; `info` also says whether each client is stored, without the Keychain |
+| `kp self-update`, `kp completions <SHELL>`, `kp info` | the family's standard commands; `info`'s `client` says whether a client is stored, and which, without the Keychain |
 
 Every command takes `--json`, except `records export --ndjson`, whose
 output is already the NDJSON stream. Exit codes: 0 ok, 2 usage, 3 auth, 4 not

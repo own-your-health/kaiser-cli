@@ -2,12 +2,14 @@
 
 ## v0.3.0 — 2026-11-20
 
-- `kp registration` prints what to enter at developer.kp.org, form by
-  form in the portal's own labels: the persona, the application's name,
-  website and description, the API to request, and the redirect URI on
-  the configured port. Then the scopes and client type kp uses and the
-  command that stores each environment's client. `--json` gives
-  `registration/v1`. It reads no secret.
+- `kp registration` prints what to enter at developer.kp.org, in the
+  portal's own labels: the Company/Business Name, the Developer persona,
+  the application's name, website and description, the API to request,
+  and both redirect URIs on the configured port. It also prints the
+  launch, client type, PKCE and scopes, the command that stores each
+  environment's client, and what the portal refuses. It is
+  medical-common's `Registration`, so it prints as the other medical
+  CLIs do, and `--json` gives `registration/v1`. It reads no secret.
 - docs/registration.md walks through the portal step by step for someone
   registering for the first time. It covers the sign-up and its 8 to 16
   character password, the phone code, the Developer persona, the
@@ -17,14 +19,19 @@
   README's setup steps moved there, and the README has a quick start from
   registration to `medrec import`, what needs a person, and how long a
   sign-in lasts.
-- `info` says whether each environment's client is stored
-  (`auth.clients`) and where registration is explained
-  (`auth.registration`). It reads the vault's file names, never the
-  Keychain, so a newly installed kp still asks nothing.
-- A missing client (exit 3) and `auth status`'s client rows name the
-  guide, `kp registration` and the right `kp auth set-credential` command.
-  `auth status` said `kp auth set-credential` for the sandbox too, which
-  needs `--sandbox`.
+- `info` and `auth status` have a `client` member: whether a client is
+  stored and which (production's before the sandbox's), confidential, in
+  the vault. `info` reads the vault's file names, never the Keychain, so a
+  newly installed kp still asks nothing. `info` lists the `registration`
+  capability.
+- A command that needs a client and finds none fails with
+  medical-common's `missing_client`: exit 2 (it was exit 3), reason
+  `no-client`, naming the environment, the guide, `kp registration` and
+  the right `kp auth set-credential` command. `auth status`'s client rows
+  carry the same remedy; they said `kp auth set-credential` for the
+  sandbox too, which needs `--sandbox`.
+- On medical-common v0.6.8 (cli-common v0.33.2 as before). Its mock server
+  serves a pharmacy fill, which the offline export test now counts.
 
 ## v0.2.3 — 2026-11-19
 

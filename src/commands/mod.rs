@@ -176,16 +176,12 @@ impl Ctx {
         crate::session::pick(&settings.grants, who.patient.as_deref(), org, profile).cloned()
     }
 
-    /// The client credentials for an environment, or the auth error that
-    /// says how to store them.
+    /// The client credentials for an environment, or medical-common's
+    /// missing-client error (exit 2) that says how to register and store
+    /// them.
     pub fn client(&self, environment: Environment) -> Result<ClientCredentials, CliError> {
-        credentials::read_client(&self.vault, environment)?.ok_or_else(|| {
-            CliError::Auth(format!(
-                "no {} client id and secret are stored",
-                environment.as_str()
-            ))
-            .with_remedy(registration::missing_client_remedy(environment))
-        })
+        credentials::read_client(&self.vault, environment)?
+            .ok_or_else(|| registration::missing(environment))
     }
 
     /// A grant's sign-in, renewed when its token has lapsed.

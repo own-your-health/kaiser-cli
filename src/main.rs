@@ -68,22 +68,18 @@ fn run(cli: &Cli) -> Result<(), CliError> {
                     "records",
                     "api",
                     "config",
-                    "registration",
                 ],
             )
             .with_profiles(PROFILES);
             // Login commands take --profile, so a records store passes one.
             info.capabilities
                 .push(pk_med_records::LOGIN_PROFILES.to_string());
-            let mut v = serde_json::to_value(&info).expect("CliInfo serializes to JSON");
-            // Whether each environment's client is stored, from the vault's
-            // files: no Keychain read, so a newly installed kp asks nothing.
-            v["auth"]["clients"] = commands::registration::client_rows(&ctx.vault).into();
-            v["auth"]["registration"] = serde_json::json!({
-                "guide": commands::registration::guide(),
-                "command": format!("{BIN} registration"),
-            });
-            output::json(&v);
+            info.capabilities
+                .push(pk_med_records::REGISTRATION.to_string());
+            // Whether a client is stored, from the vault's files: no
+            // Keychain read, so a newly installed kp asks nothing.
+            let client = commands::registration::client_on_disk(&ctx.vault);
+            output::json(&pk_med_smart::with_client(&info, &client)?);
             Ok(())
         }
     }

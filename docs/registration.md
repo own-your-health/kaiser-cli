@@ -8,7 +8,7 @@ own at [developer.kp.org](https://developer.kp.org) and stores the pairs in
 kp.
 
 `kp registration` prints every value below for the configured redirect port
-(`--json` gives `registration/v1`). The portal's labels are quoted as the
+(`--json` gives medical-common's `registration/v1`). The portal's labels are quoted as the
 portal showed them in November 2026; Kaiser's own wording, with sources, is
 in [api.md](api.md).
 
@@ -182,12 +182,13 @@ does not give production's lifetimes.
 ## Check what is stored
 
 ```sh
-kp info                            # auth.clients: each environment's `stored`, without the Keychain
-kp auth status --profile <NAME>    # the same, read from the vault, with the profile's sign-ins
+kp info                            # `client`: configured or not, and which (production first), without the Keychain
+kp auth status --profile <NAME>    # `client`, and each environment's row read from the vault, with the profile's sign-ins
 ```
 
-A command that needs a client that is not stored fails with exit 3, naming
-this guide, `kp registration` and the `kp auth set-credential` command.
+A command that needs a client that is not stored fails with exit 2
+(reason `no-client`), naming the environment, this guide,
+`kp registration` and the `kp auth set-credential` command.
 
 ## Ending access
 
