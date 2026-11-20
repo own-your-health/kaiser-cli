@@ -139,13 +139,13 @@ that fixes it.
 | `kp registration [--sandbox]` | what to enter at developer.kp.org for production's client, or the sandbox's, on the configured redirect port (`registration/v2`) |
 | `kp auth set-credential [--sandbox] [--overwrite]` | store the app's client id and secret (shared by every profile) |
 | `kp auth login --profile <NAME> [--org sandbox] [--label <WHO>] [--no-browser] [--timeout <MIN>]` | sign a member in; waits up to `--timeout` minutes (default 10, at most 60) |
-| `kp auth status --profile <NAME>` | what is stored (`auth-status/v1`), per environment and member; `clients` has a row per environment (`registration`, `configured`, and `error` for an entry that does not read); a sign-in that does not read has its `error` and `remedy`; `unmigrated` counts what kp v0.1.x left (`kp profiles migrate <NAME>` moves it), or has the `error` and `remedy` of a v0.1.x `state.json` that does not read |
+| `kp auth status --profile <NAME>` | what is stored (`auth-status/v1`), per environment and member; `clients` has a row per environment: medical-common's `registration` and `configured`, the `environment`, `stored` and `remedy` kp has always given, and `error` for an entry that does not read; a sign-in that does not read has its `error` and `remedy`; `unmigrated` counts what kp v0.1.x left (`kp profiles migrate <NAME>` moves it), or has the `error` and `remedy` of a v0.1.x `state.json` that does not read |
 | `kp auth logout --profile <NAME> [--patient <WHO>] [--org <ORG>] [--forget]` | remove the profile's sign-ins; `--forget`, once no other profile holds one, also what they share: the client credentials, kp v0.1.x's Keychain items, and the vault's key |
 | `kp patients list --profile <NAME> [--status] [--org <ORG>]` | the profile's members (`patient-list/v1`); `--status` reads each sign-in: `usable`, `refused`, and `error` and `remedy` for one that does not read |
 | `kp records export --profile <NAME> --ndjson\|-o <DIR> [--since <DATE>]` | the member's records as `records-stream/v1`; `-o` for the sandbox only |
 | `kp api --profile <NAME> GET <PATH>` | one FHIR read as the member |
 | `kp config path\|show\|set\|unset` | `redirect_port` (default 7469), `fhir_base` (Kaiser's, or a test server on this machine for the sandbox) |
-| `kp self-update`, `kp completions <SHELL>`, `kp info` | the family's standard commands; `info`'s `clients` says whether each environment's client is stored, without the Keychain |
+| `kp self-update`, `kp completions <SHELL>`, `kp info` | the family's standard commands; `info`'s `clients` says whether each environment's client is stored, without the Keychain, with `error` when the vault's directory does not read |
 
 Every command takes `--json`, except `records export --ndjson`, whose
 output is already the NDJSON stream. Exit codes: 0 ok, 2 usage or no client

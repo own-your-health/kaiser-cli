@@ -9,10 +9,13 @@
     redirect URI field, scopes, store command and notes. `--json` gives
     `registration/v2`, with `registration`, `command`, and `doc` as the
     guide's https URL.
-  - `info` and `auth status` carry `clients`, a row per environment, in
-    place of v0.3.0's single `client`. `auth status` prints a line per
-    environment, and a row for an entry that does not read has its
-    `error`.
+  - `info` and `auth status` carry `clients`, a row per environment
+    (`registration`, `configured`, `client_type`, `stored_in`). v0.3.0's
+    single `client` member is gone. `auth status`'s rows keep the
+    `environment`, `stored` and `remedy` they had in v0.3.0, beside the new
+    members. A row that could not tell has its `error`: in `auth status`,
+    an entry that does not read; in `info`, a vault directory that does
+    not. `auth status` prints a line per environment.
   - A missing client's reason is `no_client` (was `no-client`). Its remedy
     names that environment's `kp registration` command and the guide's
     URL. `--json` errors carry `error.reason` and `error.remedy` beside

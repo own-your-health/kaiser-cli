@@ -561,8 +561,8 @@ fn set_credential_then_status_reads_both() {
     )
     .unwrap();
     // `info` sees both without the vault's key.
-    let clients = commands::registration::clients_on_disk(&ctx.vault);
-    assert!(clients.iter().all(|c| c.configured), "{clients:?}");
+    let rows = commands::registration::rows_on_disk(&ctx.vault);
+    assert!(rows.iter().all(|r| r.stored()), "{rows:?}");
     let production = credentials::read_client(&ctx.vault, Environment::Production)
         .unwrap()
         .unwrap();

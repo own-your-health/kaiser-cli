@@ -128,24 +128,72 @@ pub fn missing(environment: Environment) -> CliError {
     missing_client(&registration(&Config::default(), environment))
 }
 
-/// The `clients` rows of `info` and `auth status`: production's, then the
-/// sandbox's, each configured when `stored` says so.
-pub fn clients(stored: impl Fn(Environment) -> bool) -> Vec<ClientStatus> {
+/// One environment's client as a command found it: stored or not, or the
+/// error that kept it from telling.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClientRow {
+    pub environment: Environment,
+    pub found: Result<bool, String>,
+}
+
+impl ClientRow {
+    pub fn stored(&self) -> bool {
+        self.found == Ok(true)
+    }
+
+    /// medical-common's row: configured, in the vault, when stored. An
+    /// entry that did not read is not configured.
+    pub fn status(&self) -> ClientStatus {
+        ClientStatus::of(
+            &registration(&Config::default(), self.environment),
+            self.stored().then_some(StoredIn::Vault),
+        )
+    }
+
+    /// The line `auth status` prints for it.
+    pub fn text(&self, config: &Config) -> String {
+        match &self.found {
+            Err(e) => format!("client ({}): unreadable ({e})", self.environment.as_str()),
+            Ok(_) => self.status().text(&registration(config, self.environment)),
+        }
+    }
+}
+
+/// Production's row, then the sandbox's, from `find`.
+pub fn rows(find: impl Fn(Environment) -> Result<bool, String>) -> Vec<ClientRow> {
     [Environment::Production, Environment::Sandbox]
         .into_iter()
-        .map(|e| {
-            let registration = registration(&Config::default(), e);
-            ClientStatus::of(&registration, stored(e).then_some(StoredIn::Vault))
+        .map(|environment| ClientRow {
+            environment,
+            found: find(environment),
         })
         .collect()
 }
 
-/// [`clients`] from the vault's files (`Vault::contains`): no Keychain
-/// read, so a newly installed kp's `info` raises no prompt. A vault
-/// directory that cannot be read counts as nothing stored, so `info` still
-/// answers; `auth status` reads the entries and reports the error.
-pub fn clients_on_disk(vault: &Vault) -> Vec<ClientStatus> {
-    clients(|e| credentials::client_on_disk(vault, e).unwrap_or(false))
+/// The rows from the vault's files (`Vault::contains`): no Keychain read,
+/// so a newly installed kp's `info` raises no prompt. A directory that
+/// cannot be read is the row's error.
+pub fn rows_on_disk(vault: &Vault) -> Vec<ClientRow> {
+    rows(|e| credentials::client_on_disk(vault, e).map_err(|err| err.message().to_string()))
+}
+
+/// `dto` with medical-common's `clients` member, a row each, and `error` on
+/// a row that could not tell.
+pub fn with_clients<T: serde::Serialize>(
+    dto: &T,
+    rows: &[ClientRow],
+) -> Result<serde_json::Value, CliError> {
+    let statuses: Vec<ClientStatus> = rows.iter().map(ClientRow::status).collect();
+    let mut v = pk_med_smart::with_clients(dto, &statuses)?;
+    let items = v["clients"]
+        .as_array_mut()
+        .ok_or_else(|| CliError::Other("the output's `clients` is not a list".into()))?;
+    for (item, row) in items.iter_mut().zip(rows) {
+        if let Err(e) = &row.found {
+            item["error"] = e.clone().into();
+        }
+    }
+    Ok(v)
 }
 
 pub fn run(ctx: &Ctx, args: &RegistrationArgs) -> Result<(), CliError> {
@@ -243,15 +291,31 @@ mod tests {
     }
 
     #[test]
-    fn clients_has_a_row_per_environment() {
-        let none = clients(|_| false);
-        assert_eq!(none.len(), 2);
-        assert!(none.iter().all(|c| !c.configured));
-        assert_eq!(none[0].registration.as_deref(), Some("production"));
-        assert_eq!(none[1].registration.as_deref(), Some("sandbox"));
-        let sandbox = clients(|e| e == Environment::Sandbox);
-        assert!(!sandbox[0].configured);
-        assert!(sandbox[1].configured);
-        assert_eq!(sandbox[1].stored_in, Some(StoredIn::Vault));
+    fn each_environment_has_a_row_and_an_error_is_kept() {
+        let v = with_clients(
+            &serde_json::json!({"schema": "x/v1"}),
+            &rows(|e| match e {
+                Environment::Production => Err("the vault's directory did not read".into()),
+                Environment::Sandbox => Ok(true),
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            v["clients"],
+            serde_json::json!([
+                {"registration": "production", "configured": false, "error": "the vault's directory did not read"},
+                {"registration": "sandbox", "configured": true, "client_type": "confidential-symmetric", "stored_in": "vault"},
+            ])
+        );
+        let none = rows(|_| Ok(false));
+        assert!(none.iter().all(|r| !r.status().configured));
+        assert!(none[1]
+            .text(&Config::default())
+            .starts_with("client (sandbox): none configured"));
+        let broken = rows(|_| Err("no key".into()));
+        assert_eq!(
+            broken[0].text(&Config::default()),
+            "client (production): unreadable (no key)"
+        );
     }
 }

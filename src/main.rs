@@ -78,8 +78,8 @@ fn run(cli: &Cli) -> Result<(), CliError> {
                 .push(pk_med_records::REGISTRATION.to_string());
             // Whether each client is stored, from the vault's files: no
             // Keychain read, so a newly installed kp asks nothing.
-            let clients = commands::registration::clients_on_disk(&ctx.vault);
-            output::json(&pk_med_smart::with_clients(&info, &clients)?);
+            let rows = commands::registration::rows_on_disk(&ctx.vault);
+            output::json(&commands::registration::with_clients(&info, &rows)?);
             Ok(())
         }
     }

@@ -320,13 +320,22 @@ fn nothing_stored_reads_as_such_without_the_keychain() {
     assert_eq!(v["method"], "browser-session");
     assert_eq!(v["credential_in_keychain"], false);
     assert_eq!(v["profile"], "adult1");
-    assert_eq!(
-        v["clients"],
-        json!([
-            {"registration": "production", "configured": false},
-            {"registration": "sandbox", "configured": false},
-        ])
-    );
+    let clients = v["clients"].as_array().unwrap();
+    assert_eq!(clients.len(), 2);
+    for (c, environment) in clients.iter().zip(["production", "sandbox"]) {
+        assert_eq!(c["registration"], environment);
+        assert_eq!(c["configured"], false);
+        // v0.3.0's keys, kept beside medical-common's.
+        assert_eq!(c["environment"], environment);
+        assert_eq!(c["stored"], false);
+        let remedy = c["remedy"].as_str().unwrap();
+        assert!(remedy.contains("docs/registration.md"), "{remedy}");
+        assert!(remedy.contains("`kp registration"), "{remedy}");
+    }
+    assert!(clients[1]["remedy"]
+        .as_str()
+        .unwrap()
+        .contains("`kp auth set-credential --sandbox`"));
     assert_eq!(v["patients"], json!([]));
     assert!(v.get("unmigrated").is_none());
     // KP_PROFILE stands in for --profile.
