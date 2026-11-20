@@ -25,7 +25,8 @@
   once nothing is left in it.
 
 - Then Kaiser's sandbox, with `fhir_base` unset and the app's sandbox pair
-  stored (`kp auth set-credential --sandbox`):
+  stored (`kp auth set-credential --sandbox`; registering the app is
+  [docs/registration.md](docs/registration.md)):
 
   ```sh
   kp profiles add sandbox

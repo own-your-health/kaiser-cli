@@ -1230,7 +1230,7 @@ dependencies = [
 
 [[package]]
 name = "kaiser-cli"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -1248,6 +1248,7 @@ dependencies = [
  "predicates",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "tempfile",
  "url",
 ]
@@ -1623,8 +1624,8 @@ dependencies = [
 
 [[package]]
 name = "pk-med-fhir"
-version = "0.6.2"
-source = "git+https://github.com/piekstra/medical-common?tag=v0.6.2#99332503d2dce9f021141bfc86561124a6a5620e"
+version = "0.6.8"
+source = "git+https://github.com/piekstra/medical-common?tag=v0.6.8#eb84bd18381a3cd295cde6b982de1270ffd95df6"
 dependencies = [
  "base64 0.22.1",
  "pk-cli-core",
@@ -1636,8 +1637,8 @@ dependencies = [
 
 [[package]]
 name = "pk-med-records"
-version = "0.6.2"
-source = "git+https://github.com/piekstra/medical-common?tag=v0.6.2#99332503d2dce9f021141bfc86561124a6a5620e"
+version = "0.6.8"
+source = "git+https://github.com/piekstra/medical-common?tag=v0.6.8#eb84bd18381a3cd295cde6b982de1270ffd95df6"
 dependencies = [
  "pk-cli-core",
  "pk-med-fhir",
@@ -1647,8 +1648,8 @@ dependencies = [
 
 [[package]]
 name = "pk-med-smart"
-version = "0.6.2"
-source = "git+https://github.com/piekstra/medical-common?tag=v0.6.2#99332503d2dce9f021141bfc86561124a6a5620e"
+version = "0.6.8"
+source = "git+https://github.com/piekstra/medical-common?tag=v0.6.8#eb84bd18381a3cd295cde6b982de1270ffd95df6"
 dependencies = [
  "base64 0.22.1",
  "pk-cli-auth",

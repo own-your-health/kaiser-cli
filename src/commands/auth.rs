@@ -319,7 +319,12 @@ pub fn status_of(ctx: &Ctx) -> Result<(AuthStatus, Value), CliError> {
         // logged-out status raises no prompt.
         let mut row = json!({ "environment": environment.as_str(), "stored": false });
         match credentials::read_client(&ctx.vault, environment) {
-            Ok(found) => row["stored"] = found.is_some().into(),
+            Ok(Some(_)) => row["stored"] = true.into(),
+            Ok(None) => {
+                if let Some(remedy) = super::registration::missing(environment).remedy() {
+                    row["remedy"] = remedy.into();
+                }
+            }
             Err(e) => row["error"] = e.message().into(),
         }
         any_client |= row["stored"] == true;
@@ -357,7 +362,12 @@ pub fn status_of(ctx: &Ctx) -> Result<(AuthStatus, Value), CliError> {
     let mut status = AuthStatus::new(true, any_usable, AuthMethod::BrowserSession);
     status.credential_in_keychain = Some(any_stored || any_client);
     status.session_valid = Some(any_usable);
-    let mut v = status.to_json();
+    let client = super::registration::client_status(|e| {
+        clients
+            .iter()
+            .any(|c| c["environment"] == e.as_str() && c["stored"] == true)
+    });
+    let mut v = pk_med_smart::with_client(&status.to_json(), &client)?;
     v["profile"] = profile.as_str().into();
     v["clients"] = Value::Array(clients);
     v["patients"] = Value::Array(rows);
@@ -390,6 +400,12 @@ fn status(ctx: &Ctx) -> Result<(), CliError> {
             v["profile"].as_str().unwrap_or_default()
         );
         status.render();
+        let client: pk_med_smart::ClientStatus =
+            serde_json::from_value(v["client"].clone()).unwrap_or_default();
+        println!(
+            "{}",
+            client.text(&super::registration::registration(&ctx.config()?))
+        );
         for c in &clients {
             println!(
                 "Client ({}): {}",
@@ -399,7 +415,7 @@ fn status(ctx: &Ctx) -> Result<(), CliError> {
                 } else if let Some(e) = c["error"].as_str() {
                     format!("unreadable ({e})")
                 } else {
-                    "not stored (`kp auth set-credential`)".to_string()
+                    format!("not stored: {}", c["remedy"].as_str().unwrap_or_default())
                 }
             );
         }

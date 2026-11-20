@@ -187,6 +187,8 @@ fn sign_in_then_export_claims_and_what_they_name() {
         ("Coverage", 1),
         ("Encounter", 1),
         ("ExplanationOfBenefit", 1),
+        // The mock serves a fill from medical-common v0.6.5.
+        ("MedicationDispense", 1),
         ("Organization", 2),
         ("Patient", 1),
         ("Practitioner", 1),
@@ -558,6 +560,10 @@ fn set_credential_then_status_reads_both() {
         ),
     )
     .unwrap();
+    // `info` sees production's without the vault's key.
+    let client = commands::registration::client_on_disk(&ctx.vault);
+    assert!(client.configured);
+    assert_eq!(client.registration.as_deref(), Some("production"));
     let production = credentials::read_client(&ctx.vault, Environment::Production)
         .unwrap()
         .unwrap();
