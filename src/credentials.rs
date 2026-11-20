@@ -85,21 +85,13 @@ pub fn read_client(
     vault.get_json(&client_entry(environment))
 }
 
-/// Whether an environment's client is stored, from its vault file alone:
-/// reading the entry needs the vault's Keychain key, which a newly installed
-/// kp gets only through a dialog, and `info` must never raise one. The file
-/// is named as `pk_cli_auth::vault` names it (cli-common v0.33.2), which has
-/// no public way to ask; `a_stored_client_is_seen_on_disk` fails if that
-/// naming changes. It sees that the file is there, not that it decrypts:
+/// Whether an environment's client is stored, from its vault file alone
+/// (`Vault::contains`): reading the entry needs the vault's Keychain key,
+/// which a newly installed kp gets only through a dialog, and `info` must
+/// never raise one. It sees that the file is there, not that it decrypts:
 /// `auth status` reads the entry and reports one that does not.
-pub fn client_on_disk(vault: &Vault, environment: Environment) -> bool {
-    use sha2::{Digest, Sha256};
-    let digest = Sha256::new()
-        .chain_update(b"pk-cli-vault/1\0")
-        .chain_update(client_entry(environment).as_bytes())
-        .finalize();
-    let name: String = digest.iter().map(|b| format!("{b:02x}")).collect();
-    vault.dir().join(format!("{name}.pkv")).is_file()
+pub fn client_on_disk(vault: &Vault, environment: Environment) -> Result<bool, CliError> {
+    vault.contains(&client_entry(environment))
 }
 
 pub fn store_client(
@@ -172,13 +164,14 @@ mod tests {
     fn a_stored_client_is_seen_on_disk() {
         let dir = tempfile::tempdir().unwrap();
         let vault = vault(dir.path());
-        assert!(!client_on_disk(&vault, Environment::Sandbox));
+        let on_disk = |e| client_on_disk(&vault, e).unwrap();
+        assert!(!on_disk(Environment::Sandbox));
         let c = ClientCredentials::new("client-one", "secret-one").unwrap();
         store_client(&vault, Environment::Sandbox, &c).unwrap();
-        assert!(client_on_disk(&vault, Environment::Sandbox));
-        assert!(!client_on_disk(&vault, Environment::Production));
+        assert!(on_disk(Environment::Sandbox));
+        assert!(!on_disk(Environment::Production));
         vault.delete(&client_entry(Environment::Sandbox)).unwrap();
-        assert!(!client_on_disk(&vault, Environment::Sandbox));
+        assert!(!on_disk(Environment::Sandbox));
     }
 
     #[test]

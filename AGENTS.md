@@ -16,12 +16,12 @@ kp's (`docs/api.md`, Route).
 |---|---|
 | `src/main.rs` | parsing, dispatch, `info`, exit codes |
 | `src/cli.rs` | the clap tree |
-| `src/commands/*.rs` | one module per command group (`profiles.rs`: `list`, `add`, `remove`, `migrate`; `registration.rs`: the portal's values as medical-common's `Registration`, the missing-client error, the `client` member of `info` and `auth status`); `Ctx` in `mod.rs`: the config and its owner-only writes, the `--profile` resolution, the vault and the v0.1.x Keychain, the refresh lock, the sign-in window and `forget_browser` |
+| `src/commands/*.rs` | one module per command group (`profiles.rs`: `list`, `add`, `remove`, `migrate`; `registration.rs`: the portal's values as one medical-common `Registration` per environment, the missing-client error, the `clients` rows of `info` and `auth status`); `Ctx` in `mod.rs`: the config and its owner-only writes, the `--profile` resolution, the vault and the v0.1.x Keychain, the refresh lock, the sign-in window and `forget_browser` |
 | `src/kaiser.rs` | the two organizations (the health plan and its sandbox): FHIR base, regions, scopes, `--org` resolution and search, `KaiserQuirks` |
 | `src/session.rs` | a signed-in member (`Context`, a profile's grant), picking one, the live token with renewal over the profile's sessions in the vault (`ProfileSessions`, `Live`) |
 | `src/export.rs` | what `records export` pulls, in order, and which failures skip rather than stop |
 | `src/config.rs` | the config: redirect port, FHIR base override, the profiles and each one's grants (`ProfileSettings`) |
-| `src/credentials.rs` | the app's client id and secret: the vault entries `_client/<environment>`, whether one is on disk (`client_on_disk`, no Keychain), and v0.1.x's account names |
+| `src/credentials.rs` | the app's client id and secret: the vault entries `_client/<environment>`, whether one is on disk (`client_on_disk`, `Vault::contains`, no Keychain), and v0.1.x's account names |
 | `src/state.rs` | kp v0.1.x's `state.json`, the list of its Keychain items, which `profiles migrate` and `auth logout --forget` read and remove |
 | `src/fsutil.rs` | owner-only files written whole |
 | `examples/mock_kaiser.rs` | `make mock`: medical-common's mock SMART + FHIR server, for dogfooding |
@@ -67,14 +67,14 @@ Medical records are the most sensitive data a household has.
   both confidential: never printed, logged, or put in argv. Each household
   registers its own app (`docs/registration.md`); no client id ships with
   kp, and none belongs in the repository.
-- `info`'s `client` member (medical-common DESIGN §3.8) says whether a
-  client is stored, production's before the sandbox's, from the vault's
-  file names alone (`credentials::client_on_disk`), so `info` never reads
-  the Keychain; `auth status` reads the entries, and has each
-  environment's row. A missing client is `pk_med_smart::missing_client`:
-  exit 2, reason `no-client`, naming the environment, the guide,
-  `kp registration` and the `set-credential` command
-  (`registration::missing`).
+- `info`'s `clients` member (medical-common DESIGN §3.8) has a row per
+  environment, production's then the sandbox's, each `configured` from
+  the vault's files alone (`Vault::contains`), so `info` never reads the
+  Keychain; `auth status` reads the entries, and gives an entry that does
+  not read its `error`. A missing client is
+  `pk_med_smart::missing_client`: exit 2, reason `no_client`, naming the
+  environment, the guide's URL, that environment's `kp registration`
+  command and its `set-credential` command (`registration::missing`).
 - A member's sign-in is pk-med-smart's session, the vault entry
   `<profile>/<org>/<FHIR patient id>` (`ProfileSessions`). Errors never name
   it, since it holds the member's id. Renewal runs under the family's
@@ -122,11 +122,11 @@ Medical records are the most sensitive data a household has.
 `make verify` (fmt, clippy, tests, smoke), offline:
 
 - `tests/cli_surface.rs`: the binary's help, exit codes, JSON errors,
-  `info` (with `login-profiles`, `registration` and `client`),
-  `registration` (`registration/v1` on the configured port), completions,
+  `info` (with `login-profiles`, `registration` and `clients`),
+  `registration [--sandbox]` (`registration/v2` on the configured port), completions,
   `orgs`, `config`,
   `profiles`, a login command refused without a configured `--profile`,
-  logged-out `auth status` (`client`, each environment's remedy).
+  logged-out `auth status` (`clients`, each environment's line).
 - `tests/e2e.rs`: in process against medical-common's mock server on
   127.0.0.1, with a stand-in browser and a vault over `MemoryKeys`, as
   profile `adult1`: sign-in (discovery

@@ -308,28 +308,26 @@ fn verify(t: &pk_cli_http::BlockingTransport, session: &SmartSession, patient: &
 /// `auth-status/v1` with `profile`, `clients` and `patients` rows. An entry
 /// that cannot be read is its row's `error`, not the command's failure.
 pub fn status_of(ctx: &Ctx) -> Result<(AuthStatus, Value), CliError> {
+    status_and_clients(ctx).map(|(status, v, _)| (status, v))
+}
+
+/// [`status_of`], and the client rows it was built from.
+fn status_and_clients(
+    ctx: &Ctx,
+) -> Result<(AuthStatus, Value, Vec<super::registration::ClientRow>), CliError> {
     let config = ctx.config()?;
     let profile = ctx.profile(&config)?;
     let settings = ctx.settings(&config, &profile)?;
     let sessions = ctx.sessions(&profile);
-    let mut clients = Vec::new();
-    let mut any_client = false;
-    for environment in Environment::ALL {
-        // The vault reads its key only when the entry exists, so a
-        // logged-out status raises no prompt.
-        let mut row = json!({ "environment": environment.as_str(), "stored": false });
-        match credentials::read_client(&ctx.vault, environment) {
-            Ok(Some(_)) => row["stored"] = true.into(),
-            Ok(None) => {
-                if let Some(remedy) = super::registration::missing(environment).remedy() {
-                    row["remedy"] = remedy.into();
-                }
-            }
-            Err(e) => row["error"] = e.message().into(),
-        }
-        any_client |= row["stored"] == true;
-        clients.push(row);
-    }
+    // Each environment's client: stored, absent, or an entry that does not
+    // read. The vault reads its key only when an entry exists, so a
+    // logged-out status raises no prompt.
+    let clients = super::registration::rows(|e| {
+        credentials::read_client(&ctx.vault, e)
+            .map(|c| c.is_some())
+            .map_err(|err| err.message().to_string())
+    });
+    let any_client = clients.iter().any(|c| c.stored());
     let mut rows = Vec::new();
     let mut any_stored = false;
     let mut any_usable = false;
@@ -362,14 +360,24 @@ pub fn status_of(ctx: &Ctx) -> Result<(AuthStatus, Value), CliError> {
     let mut status = AuthStatus::new(true, any_usable, AuthMethod::BrowserSession);
     status.credential_in_keychain = Some(any_stored || any_client);
     status.session_valid = Some(any_usable);
-    let client = super::registration::client_status(|e| {
-        clients
-            .iter()
-            .any(|c| c["environment"] == e.as_str() && c["stored"] == true)
-    });
-    let mut v = pk_med_smart::with_client(&status.to_json(), &client)?;
+    let mut v = super::registration::with_clients(&status.to_json(), &clients)?;
+    // Each row keeps v0.3.0's `environment`, `stored` and `remedy` beside
+    // medical-common's members, so a reader of those still finds them.
+    for (item, row) in v["clients"]
+        .as_array_mut()
+        .into_iter()
+        .flatten()
+        .zip(&clients)
+    {
+        item["environment"] = row.environment.as_str().into();
+        item["stored"] = row.stored().into();
+        if row.found == Ok(false) {
+            if let Some(remedy) = super::registration::missing(row.environment).remedy() {
+                item["remedy"] = remedy.into();
+            }
+        }
+    }
     v["profile"] = profile.as_str().into();
-    v["clients"] = Value::Array(clients);
     v["patients"] = Value::Array(rows);
     // Sign-ins kp v0.1.x kept are not this profile's until moved.
     match ctx.state_file()?.load() {
@@ -385,12 +393,11 @@ pub fn status_of(ctx: &Ctx) -> Result<(AuthStatus, Value), CliError> {
             v["unmigrated"] = json!({ "error": e.message(), "remedy": LEGACY_UNREADABLE });
         }
     }
-    Ok((status, v))
+    Ok((status, v, clients))
 }
 
 fn status(ctx: &Ctx) -> Result<(), CliError> {
-    let (status, v) = status_of(ctx)?;
-    let clients = v["clients"].as_array().cloned().unwrap_or_default();
+    let (status, v, clients) = status_and_clients(ctx)?;
     let rows = v["patients"].as_array().cloned().unwrap_or_default();
     if ctx.json() {
         output::json(&v);
@@ -400,24 +407,9 @@ fn status(ctx: &Ctx) -> Result<(), CliError> {
             v["profile"].as_str().unwrap_or_default()
         );
         status.render();
-        let client: pk_med_smart::ClientStatus =
-            serde_json::from_value(v["client"].clone()).unwrap_or_default();
-        println!(
-            "{}",
-            client.text(&super::registration::registration(&ctx.config()?))
-        );
-        for c in &clients {
-            println!(
-                "Client ({}): {}",
-                c["environment"].as_str().unwrap_or_default(),
-                if c["stored"] == true {
-                    "stored".to_string()
-                } else if let Some(e) = c["error"].as_str() {
-                    format!("unreadable ({e})")
-                } else {
-                    format!("not stored: {}", c["remedy"].as_str().unwrap_or_default())
-                }
-            );
+        let config = ctx.config()?;
+        for row in &clients {
+            println!("{}", row.text(&config));
         }
         if rows.is_empty() {
             println!(
@@ -865,6 +857,28 @@ pub(crate) mod tests {
         assert_eq!(done["legacy_error"]["remedy"], LEGACY_UNREADABLE);
         assert_eq!(done["state_cleared"], false);
         assert!(state_file.path().exists());
+    }
+
+    #[test]
+    fn a_client_entry_that_does_not_read_is_its_rows_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ctx(dir.path());
+        ctx.vault
+            .put(
+                &client_entry(Environment::Production),
+                &Secret::new("{not json"),
+            )
+            .unwrap();
+        let (_, v) = status_of(&ctx).unwrap();
+        let row = &v["clients"][0];
+        assert_eq!(row["registration"], "production");
+        assert_eq!(row["environment"], "production");
+        assert_eq!(row["configured"], false);
+        assert_eq!(row["stored"], false);
+        assert!(row["error"].is_string(), "{row}");
+        assert!(row.get("remedy").is_none(), "{row}");
+        assert_eq!(v["clients"][1]["registration"], "sandbox");
+        assert!(v["clients"][1].get("error").is_none());
     }
 
     #[test]

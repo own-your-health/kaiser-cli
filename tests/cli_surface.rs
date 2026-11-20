@@ -120,7 +120,13 @@ fn info_is_cli_info() {
         .contains(&json!("login-profiles")));
     assert!(v.to_string().contains("piekstra/kaiser-cli"));
     // Whether a client is stored, read from the vault's files: nothing is.
-    assert_eq!(v["client"], json!({"configured": false}));
+    assert_eq!(
+        v["clients"],
+        json!([
+            {"registration": "production", "configured": false},
+            {"registration": "sandbox", "configured": false},
+        ])
+    );
     assert!(v["capabilities"]
         .as_array()
         .unwrap()
@@ -131,10 +137,15 @@ fn info_is_cli_info() {
 fn registration_prints_the_portals_values_on_the_configured_port() {
     let home = tmp();
     let v = stdout_json(kp(&home).args(["registration", "--json"]));
-    assert_eq!(v["schema"], "registration/v1");
+    assert_eq!(v["schema"], "registration/v2");
     assert_eq!(v["cli"], "kp");
+    assert_eq!(v["registration"], "production");
+    assert_eq!(v["command"], "kp registration");
     assert_eq!(v["portal"], "https://developer.kp.org");
-    assert_eq!(v["doc"], "docs/registration.md");
+    assert_eq!(
+        v["doc"],
+        "https://github.com/piekstra/kaiser-cli/blob/main/docs/registration.md"
+    );
     assert_eq!(v["launch"], "standalone-patient");
     assert_eq!(v["client_type"], "confidential-symmetric");
     assert_eq!(v["pkce"], "S256");
@@ -142,46 +153,60 @@ fn registration_prints_the_portals_values_on_the_configured_port() {
         v["redirect_uris"],
         json!(["http://127.0.0.1:7469/callback"])
     );
-    assert_eq!(v["store"], "kp auth set-credential [--sandbox]");
-    assert!(v["scopes"].as_array().unwrap().contains(&json!("sandbox")));
+    assert_eq!(v["store"], "kp auth set-credential");
+    assert!(!v["scopes"].as_array().unwrap().contains(&json!("sandbox")));
     assert_eq!(
         v["urls"],
         json!([{"label": "Application Website", "value": "https://github.com/piekstra/kaiser-cli"}])
     );
-    let fields = v["fields"].as_array().unwrap();
-    let value = |label: &str| {
-        fields
+    let labels = |v: &Value| -> Vec<String> {
+        v["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["label"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let value = |v: &Value, label: &str| {
+        v["fields"]
+            .as_array()
+            .unwrap()
             .iter()
             .find(|f| f["label"] == label)
             .unwrap_or_else(|| panic!("no {label}"))["value"]
             .clone()
     };
-    assert_eq!(value("Persona or Type"), "Developer");
-    assert!(value("Use this API")
+    assert_eq!(value(&v, "Persona or Type"), "Developer");
+    assert!(value(&v, "Use this API")
         .as_str()
         .unwrap()
         .starts_with("Patient Access API - Explanation of Benefits"));
     assert_eq!(
-        value("Production Redirect URI"),
+        value(&v, "Production Redirect URI"),
         "http://127.0.0.1:7469/callback"
     );
-    // The redirect follows the configured port.
+    assert!(!labels(&v).contains(&"Sandbox Redirect URI".to_string()));
+    // --sandbox prints the sandbox's, on the configured port.
     kp(&home)
         .args(["config", "set", "redirect_port", "8123"])
         .assert()
         .success();
-    let v = stdout_json(kp(&home).args(["registration", "--json"]));
+    let v = stdout_json(kp(&home).args(["registration", "--sandbox", "--json"]));
+    assert_eq!(v["registration"], "sandbox");
+    assert_eq!(v["command"], "kp registration --sandbox");
+    assert_eq!(v["store"], "kp auth set-credential --sandbox");
+    assert!(v["scopes"].as_array().unwrap().contains(&json!("sandbox")));
     assert_eq!(
         v["redirect_uris"],
         json!(["http://127.0.0.1:8123/callback"])
     );
-    for f in v["fields"].as_array().unwrap() {
-        if f["label"].as_str().unwrap().ends_with("Redirect URI") {
-            assert_eq!(f["value"], "http://127.0.0.1:8123/callback");
-        }
-    }
+    assert_eq!(
+        value(&v, "Sandbox Redirect URI"),
+        "http://127.0.0.1:8123/callback"
+    );
+    assert!(!labels(&v).contains(&"Production Redirect URI".to_string()));
     kp(&home)
-        .arg("registration")
+        .args(["registration", "--sandbox"])
         .assert()
         .success()
         .stdout(predicate::str::contains(
@@ -295,19 +320,22 @@ fn nothing_stored_reads_as_such_without_the_keychain() {
     assert_eq!(v["method"], "browser-session");
     assert_eq!(v["credential_in_keychain"], false);
     assert_eq!(v["profile"], "adult1");
-    assert_eq!(v["client"], json!({"configured": false}));
     let clients = v["clients"].as_array().unwrap();
     assert_eq!(clients.len(), 2);
-    for c in clients {
+    for (c, environment) in clients.iter().zip(["production", "sandbox"]) {
+        assert_eq!(c["registration"], environment);
+        assert_eq!(c["configured"], false);
+        // v0.3.0's keys, kept beside medical-common's.
+        assert_eq!(c["environment"], environment);
         assert_eq!(c["stored"], false);
         let remedy = c["remedy"].as_str().unwrap();
-        assert!(remedy.contains("`kp registration`"), "{remedy}");
         assert!(remedy.contains("docs/registration.md"), "{remedy}");
+        assert!(remedy.contains("`kp registration"), "{remedy}");
     }
     assert!(clients[1]["remedy"]
         .as_str()
         .unwrap()
-        .ends_with("`kp auth set-credential --sandbox`"));
+        .contains("`kp auth set-credential --sandbox`"));
     assert_eq!(v["patients"], json!([]));
     assert!(v.get("unmigrated").is_none());
     // KP_PROFILE stands in for --profile.
@@ -316,7 +344,9 @@ fn nothing_stored_reads_as_such_without_the_keychain() {
         .args(["auth", "status"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("not stored"));
+        .stdout(predicate::str::contains(
+            "client (sandbox): none configured; see https://github.com/piekstra/kaiser-cli/blob/main/docs/registration.md and `kp registration --sandbox`",
+        ));
     let v = stdout_json(kp(&home).args(["auth", "logout", "--profile", "adult1", "--json"]));
     assert_eq!(
         v,

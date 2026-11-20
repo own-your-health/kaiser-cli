@@ -36,7 +36,7 @@ fn run(cli: &Cli) -> Result<(), CliError> {
         Command::Records(cmd) => commands::records::run(&ctx, cmd),
         Command::Api(args) => commands::api::run(&ctx, args),
         Command::Config(cmd) => commands::config::run(&ctx, cmd),
-        Command::Registration => commands::registration::run(&ctx),
+        Command::Registration(args) => commands::registration::run(&ctx, args),
         Command::SelfUpdate(args) => Updater {
             repo: REPO.into(),
             binary: BIN.into(),
@@ -76,10 +76,10 @@ fn run(cli: &Cli) -> Result<(), CliError> {
                 .push(pk_med_records::LOGIN_PROFILES.to_string());
             info.capabilities
                 .push(pk_med_records::REGISTRATION.to_string());
-            // Whether a client is stored, from the vault's files: no
+            // Whether each client is stored, from the vault's files: no
             // Keychain read, so a newly installed kp asks nothing.
-            let client = commands::registration::client_on_disk(&ctx.vault);
-            output::json(&pk_med_smart::with_client(&info, &client)?);
+            let rows = commands::registration::rows_on_disk(&ctx.vault);
+            output::json(&commands::registration::with_clients(&info, &rows)?);
             Ok(())
         }
     }

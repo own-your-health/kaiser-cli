@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.3.1 — 2026-11-20
+
+- On medical-common v0.6.9 and cli-common v0.33.4, every `pk-cli-*` with
+  it: the registration as medical-common revised it (its DESIGN §3.8).
+  - `kp registration` prints production's client and
+    `kp registration --sandbox` the sandbox's, each with only its own
+    redirect URI field, scopes, store command and notes. `--json` gives
+    `registration/v2`, with `registration`, `command`, and `doc` as the
+    guide's https URL.
+  - `info` and `auth status` carry `clients`, a row per environment
+    (`registration`, `configured`, `client_type`, `stored_in`). v0.3.0's
+    single `client` member is gone. `auth status`'s rows keep the
+    `environment`, `stored` and `remedy` they had in v0.3.0, beside the new
+    members. A row that could not tell has its `error`: in `auth status`,
+    an entry that does not read; in `info`, a vault directory that does
+    not. `auth status` prints a line per environment.
+  - A missing client's reason is `no_client` (was `no-client`). Its remedy
+    names that environment's `kp registration` command and the guide's
+    URL. `--json` errors carry `error.reason` and `error.remedy` beside
+    `message`.
+- `info` checks whether a client is stored with cli-common's
+  `Vault::contains`, in place of kp's copy of the vault's file naming. The
+  direct `sha2` dependency is gone.
+
 ## v0.3.0 — 2026-11-20
 
 - `kp registration` prints what to enter at developer.kp.org, in the

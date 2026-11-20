@@ -7,8 +7,9 @@ confidential. So each person, or each household, registers an app of its
 own at [developer.kp.org](https://developer.kp.org) and stores the pairs in
 kp.
 
-`kp registration` prints every value below for the configured redirect port
-(`--json` gives medical-common's `registration/v1`). The portal's labels are quoted as the
+`kp registration` prints every value below for production's client, and
+`kp registration --sandbox` for the sandbox's, on the configured redirect
+port (`--json` gives medical-common's `registration/v2`). The portal's labels are quoted as the
 portal showed them in November 2026; Kaiser's own wording, with sources, is
 in [api.md](api.md).
 
@@ -182,17 +183,18 @@ does not give production's lifetimes.
 ## Check what is stored
 
 ```sh
-kp info                            # `client`: configured or not, and which (production first), without the Keychain
-kp auth status --profile <NAME>    # `client`, and each environment's row read from the vault, with the profile's sign-ins
+kp info                            # `clients`: a row per environment, configured or not, without the Keychain
+kp auth status --profile <NAME>    # the same rows read from the vault, with the profile's sign-ins
 ```
 
 `info` sees that a client's entry is in the vault; `auth status` reads it.
 So an entry that no longer decrypts, after the vault's Keychain key was lost
-or replaced, is configured in `info` and an `error` in `auth status`'s row.
+or replaced, is configured in `info` and has an `error` in `auth status`'s row.
 
 A command that needs a client that is not stored fails with exit 2
-(reason `no-client`), naming the environment, this guide,
-`kp registration` and the `kp auth set-credential` command.
+(reason `no_client`), naming the environment, this guide, that
+environment's `kp registration` command and its `kp auth set-credential`
+command.
 
 ## Ending access
 
