@@ -138,7 +138,7 @@ that fixes it.
 | `kp registration` | what to enter at developer.kp.org, on the configured redirect port (`registration/v1`) |
 | `kp auth set-credential [--sandbox] [--overwrite]` | store the app's client id and secret (shared by every profile) |
 | `kp auth login --profile <NAME> [--org sandbox] [--label <WHO>] [--no-browser] [--timeout <MIN>]` | sign a member in; waits up to `--timeout` minutes (default 10, at most 60) |
-| `kp auth status --profile <NAME>` | what is stored (`auth-status/v1`), per environment and member; a sign-in that does not read has its `error` and `remedy`; `unmigrated` counts what kp v0.1.x left (`kp profiles migrate <NAME>` moves it), or has the `error` and `remedy` of a v0.1.x `state.json` that does not read |
+| `kp auth status --profile <NAME>` | what is stored (`auth-status/v1`), per environment and member; `client` says whether a client is stored, and which (production's before the sandbox's), and a client row that is not stored carries the `remedy`; a sign-in that does not read has its `error` and `remedy`; `unmigrated` counts what kp v0.1.x left (`kp profiles migrate <NAME>` moves it), or has the `error` and `remedy` of a v0.1.x `state.json` that does not read |
 | `kp auth logout --profile <NAME> [--patient <WHO>] [--org <ORG>] [--forget]` | remove the profile's sign-ins; `--forget`, once no other profile holds one, also what they share: the client credentials, kp v0.1.x's Keychain items, and the vault's key |
 | `kp patients list --profile <NAME> [--status] [--org <ORG>]` | the profile's members (`patient-list/v1`); `--status` reads each sign-in: `usable`, `refused`, and `error` and `remedy` for one that does not read |
 | `kp records export --profile <NAME> --ndjson\|-o <DIR> [--since <DATE>]` | the member's records as `records-stream/v1`; `-o` for the sandbox only |
@@ -147,8 +147,9 @@ that fixes it.
 | `kp self-update`, `kp completions <SHELL>`, `kp info` | the family's standard commands; `info`'s `client` says whether a client is stored, and which, without the Keychain |
 
 Every command takes `--json`, except `records export --ndjson`, whose
-output is already the NDJSON stream. Exit codes: 0 ok, 2 usage, 3 auth, 4 not
-found, 5 upstream, 6 confirmation required.
+output is already the NDJSON stream. Exit codes: 0 ok, 2 usage or no client
+stored (reason `no-client`), 3 auth, 4 not found, 5 upstream, 6 confirmation
+required.
 
 ## Build
 

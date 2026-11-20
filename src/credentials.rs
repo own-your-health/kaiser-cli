@@ -90,7 +90,8 @@ pub fn read_client(
 /// kp gets only through a dialog, and `info` must never raise one. The file
 /// is named as `pk_cli_auth::vault` names it (cli-common v0.33.2), which has
 /// no public way to ask; `a_stored_client_is_seen_on_disk` fails if that
-/// naming changes.
+/// naming changes. It sees that the file is there, not that it decrypts:
+/// `auth status` reads the entry and reports one that does not.
 pub fn client_on_disk(vault: &Vault, environment: Environment) -> bool {
     use sha2::{Digest, Sha256};
     let digest = Sha256::new()

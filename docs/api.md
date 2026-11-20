@@ -403,12 +403,12 @@ proxies and from members under 18.
 | Step | Request | On failure |
 |---|---|---|
 | Discovery | `GET [base]/metadata`, endpoints from `rest[0].security.extension` `oauth-uris` (`KaiserQuirks::metadata_first`; no `.well-known` request) | exit 5 |
-| Sign-in | authorize with PKCE S256, `aud` = the base, the scopes above, in Chrome in the profile's own browser profile with no page before it (its authorize step goes to `pfam.kp.org`, not kp.org's member sign-in); token request with the client id and secret as HTTP Basic | exit 3 |
+| Sign-in | authorize with PKCE S256, `aud` = the base, the scopes above, in Chrome in the profile's own browser profile with no page before it (its authorize step goes to `pfam.kp.org`, not kp.org's member sign-in); token request with the client id and secret as HTTP Basic | exit 3; exit 2 (reason `no-client`) when no client is stored for the environment |
 | Member | `GET Patient/<patient>` from the token response's `patient` | skip `Patient` |
 | Searches | `ExplanationOfBenefit`, `Coverage`, `Encounter`, `MedicationDispense`, each `?patient=<id>`, every page | skip the search: `forbidden` (403), `unsupported` (404), `upstream`, `page_cap`; an answer whose `OperationOutcome` has an issue coded `suppressed` keeps its results, and the trailer has one `forbidden` skip per type and distinct line (`SearchResult::withheld`), with `resource_type` and no `search` or `id` |
 | `--since D` | `&_lastUpdated=geD` on each search; the member's `Patient` and every referenced read come whole (`since_unbounded`) | as above |
 | References | a read of each `Coverage`, `Location`, `Organization`, `Patient`, `Practitioner` the results name, relative or absolute on the base (scheme and host in any case), not yet written; contained (`#…`), `urn:`, conditional and other servers' references are left alone | skip that resource (`forbidden`, `not_found`, `upstream`); a reference on the base whose id FHIR does not allow is an `invalid_reference` skip naming the type and the id's length, never the id |
-| Renewal | before a request, a lapsed access token is renewed with the refresh token; a 401 is renewed once and the request retried | stop: exit 3, `kp auth login` |
+| Renewal | before a request, a lapsed access token is renewed with the refresh token; a 401 is renewed once and the request retried | stop: exit 3, `kp auth login`; exit 2 (`no-client`) when no client is stored for the environment |
 | Stored sign-in | the member's pk-med-smart session, the vault entry `<profile>/<org>/<member>` | stop: exit 1, `kp auth logout` then `kp auth login` (each with `--profile`) when it does not read, `kp self-update` when a newer kp wrote it |
 
 The export stops, with `complete: false` in the trailer and the error's exit

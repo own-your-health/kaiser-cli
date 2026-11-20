@@ -186,6 +186,10 @@ kp info                            # `client`: configured or not, and which (pro
 kp auth status --profile <NAME>    # `client`, and each environment's row read from the vault, with the profile's sign-ins
 ```
 
+`info` sees that a client's entry is in the vault; `auth status` reads it.
+So an entry that no longer decrypts, after the vault's Keychain key was lost
+or replaced, is configured in `info` and an `error` in `auth status`'s row.
+
 A command that needs a client that is not stored fails with exit 2
 (reason `no-client`), naming the environment, this guide,
 `kp registration` and the `kp auth set-credential` command.
