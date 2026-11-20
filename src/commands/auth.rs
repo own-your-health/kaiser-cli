@@ -312,24 +312,20 @@ pub fn status_of(ctx: &Ctx) -> Result<(AuthStatus, Value), CliError> {
     let profile = ctx.profile(&config)?;
     let settings = ctx.settings(&config, &profile)?;
     let sessions = ctx.sessions(&profile);
-    let mut clients = Vec::new();
-    let mut any_client = false;
-    for environment in Environment::ALL {
-        // The vault reads its key only when the entry exists, so a
-        // logged-out status raises no prompt.
-        let mut row = json!({ "environment": environment.as_str(), "stored": false });
-        match credentials::read_client(&ctx.vault, environment) {
-            Ok(Some(_)) => row["stored"] = true.into(),
-            Ok(None) => {
-                if let Some(remedy) = super::registration::missing(environment).remedy() {
-                    row["remedy"] = remedy.into();
-                }
-            }
-            Err(e) => row["error"] = e.message().into(),
-        }
-        any_client |= row["stored"] == true;
-        clients.push(row);
-    }
+    // Each environment's client: stored, absent, or an entry that does not
+    // read. The vault reads its key only when an entry exists, so a
+    // logged-out status raises no prompt.
+    let read: Vec<(Environment, Result<bool, String>)> = Environment::ALL
+        .into_iter()
+        .map(|e| {
+            let found = credentials::read_client(&ctx.vault, e)
+                .map(|c| c.is_some())
+                .map_err(|err| err.message().to_string());
+            (e, found)
+        })
+        .collect();
+    let stored = |e: Environment| read.iter().any(|(env, r)| *env == e && r == &Ok(true));
+    let any_client = Environment::ALL.into_iter().any(stored);
     let mut rows = Vec::new();
     let mut any_stored = false;
     let mut any_usable = false;
@@ -362,14 +358,19 @@ pub fn status_of(ctx: &Ctx) -> Result<(AuthStatus, Value), CliError> {
     let mut status = AuthStatus::new(true, any_usable, AuthMethod::BrowserSession);
     status.credential_in_keychain = Some(any_stored || any_client);
     status.session_valid = Some(any_usable);
-    let client = super::registration::client_status(|e| {
-        clients
-            .iter()
-            .any(|c| c["environment"] == e.as_str() && c["stored"] == true)
-    });
-    let mut v = pk_med_smart::with_client(&status.to_json(), &client)?;
+    let mut v =
+        pk_med_smart::with_clients(&status.to_json(), &super::registration::clients(stored))?;
+    // An entry that does not read is not configured, and says why.
+    for row in v["clients"].as_array_mut().into_iter().flatten() {
+        let error = read.iter().find_map(|(e, r)| match r {
+            Err(err) if row["registration"] == e.as_str() => Some(err.clone()),
+            _ => None,
+        });
+        if let Some(error) = error {
+            row["error"] = error.into();
+        }
+    }
     v["profile"] = profile.as_str().into();
-    v["clients"] = Value::Array(clients);
     v["patients"] = Value::Array(rows);
     // Sign-ins kp v0.1.x kept are not this profile's until moved.
     match ctx.state_file()?.load() {
@@ -400,24 +401,21 @@ fn status(ctx: &Ctx) -> Result<(), CliError> {
             v["profile"].as_str().unwrap_or_default()
         );
         status.render();
-        let client: pk_med_smart::ClientStatus =
-            serde_json::from_value(v["client"].clone()).unwrap_or_default();
-        println!(
-            "{}",
-            client.text(&super::registration::registration(&ctx.config()?))
-        );
-        for c in &clients {
-            println!(
-                "Client ({}): {}",
-                c["environment"].as_str().unwrap_or_default(),
-                if c["stored"] == true {
-                    "stored".to_string()
-                } else if let Some(e) = c["error"].as_str() {
-                    format!("unreadable ({e})")
-                } else {
-                    format!("not stored: {}", c["remedy"].as_str().unwrap_or_default())
-                }
-            );
+        let config = ctx.config()?;
+        for row in &clients {
+            let client: pk_med_smart::ClientStatus =
+                serde_json::from_value(row.clone()).unwrap_or_default();
+            let environment = Environment::ALL
+                .into_iter()
+                .find(|e| row["registration"] == e.as_str())
+                .unwrap_or(Environment::Production);
+            match row["error"].as_str() {
+                Some(e) => println!("client ({}): unreadable ({e})", environment.as_str()),
+                None => println!(
+                    "{}",
+                    client.text(&super::registration::registration(&config, environment))
+                ),
+            }
         }
         if rows.is_empty() {
             println!(

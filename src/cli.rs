@@ -57,9 +57,10 @@ pub enum Command {
     #[command(subcommand)]
     Config(ConfigCmd),
     /// What to enter in Kaiser's developer portal to register an app for
-    /// kp, and how to store the client id and secret it issues
-    /// (registration/v1; docs/registration.md walks through it).
-    Registration,
+    /// kp, and how to store the client id and secret it issues: production's
+    /// client, or with --sandbox the sandbox's (registration/v2;
+    /// docs/registration.md walks through it).
+    Registration(RegistrationArgs),
     /// Update to the latest release from GitHub.
     SelfUpdate(SelfUpdateArgs),
     /// Print a shell completion script.
@@ -78,12 +79,20 @@ impl Command {
             Command::Orgs(_)
             | Command::Profiles(_)
             | Command::Config(_)
-            | Command::Registration
+            | Command::Registration(_)
             | Command::SelfUpdate(_)
             | Command::Completions { .. }
             | Command::Info => false,
         }
     }
+}
+
+#[derive(Args, Debug)]
+pub struct RegistrationArgs {
+    /// The sandbox's client, for Kaiser's synthetic test members: it needs no
+    /// approval.
+    #[arg(long)]
+    pub sandbox: bool,
 }
 
 #[derive(Subcommand, Debug)]
