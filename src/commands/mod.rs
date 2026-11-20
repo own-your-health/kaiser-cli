@@ -9,6 +9,7 @@ pub mod orgs;
 pub mod patients;
 pub mod profiles;
 pub mod records;
+pub mod registration;
 
 use std::any::Any;
 use std::path::PathBuf;
@@ -183,10 +184,7 @@ impl Ctx {
                 "no {} client id and secret are stored",
                 environment.as_str()
             ))
-            .with_remedy(match environment {
-                Environment::Production => "run `kp auth set-credential`",
-                Environment::Sandbox => "run `kp auth set-credential --sandbox`",
-            })
+            .with_remedy(registration::missing_client_remedy(environment))
         })
     }
 

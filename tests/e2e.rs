@@ -558,6 +558,14 @@ fn set_credential_then_status_reads_both() {
         ),
     )
     .unwrap();
+    // `info` and `registration` see both without the vault's key.
+    assert_eq!(
+        commands::registration::client_rows(&ctx.vault),
+        vec![
+            serde_json::json!({"environment": "production", "stored": true}),
+            serde_json::json!({"environment": "sandbox", "stored": true}),
+        ]
+    );
     let production = credentials::read_client(&ctx.vault, Environment::Production)
         .unwrap()
         .unwrap();

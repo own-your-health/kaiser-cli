@@ -1230,7 +1230,7 @@ dependencies = [
 
 [[package]]
 name = "kaiser-cli"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -1248,6 +1248,7 @@ dependencies = [
  "predicates",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "tempfile",
  "url",
 ]

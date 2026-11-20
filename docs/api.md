@@ -452,56 +452,25 @@ Run 2026-11-19 with kp v0.2.2, the app's sandbox client and the redirect
 
 ### Registration at developer.kp.org
 
-1. Create an account (Azure AD B2C sign-up, email verification), accept the
-   KP Developer Portal Terms and Conditions and review the Code of Ethics.
-   The sign-up page asks for a "valid company email address" (seen
-   2026-11-19), and the terms assume a company: the person agreeing is
-   "authorized to enter into this Agreement on behalf of your Company", and
-   "any and all registration information you provide" must be accurate.
-   A personal address was accepted (2026-11-19).
-2. Select a persona (Developer; its API Catalog also lists "KP
-   Interoperability Clinical Data", which sends clinical data to Epic: Route,
-   item 1); add an application: name, description, website. These
-   cannot be edited after saving and are shown to members on kp.org's
-   revocation screen ("should not include names like test or validation").
-3. In the API Catalog, "Use this API" on "Patient Access API - Explanation of
-   Benefits and Associated Resources" (Version 4.0.1 FHIR) and select the
-   application. Kaiser reviews the request and emails the decision; no time
-   frame is published. Until then the production Access Status reads
-   "Pending".
-4. The sandbox needs no approval: its redirect URI and "Generate ID/Secret"
-   work right after the request (2026-11-19), and the portal saved
-   `http://127.0.0.1:7469/callback` there. The production redirect URI field
-   stays read-only until Kaiser approves; then enter it and "Generate
-   ID/Secret" for production. Each secret is shown once. Rules for native or
-   loopback redirect URIs are not published. kp's redirect is
-   `http://127.0.0.1:<port>/callback` on the configured port.
-   Should Kaiser take only `https` there, as Epic does in production,
-   pk-med-smart v0.5.0 can send a registered `https` page that forwards to
-   that loopback (`SmartApp::redirect_uri`); kp would need that page hosted
-   and a setting naming it, which it does not have yet.
+[registration.md](registration.md) walks through the portal and
+summarizes its terms. What the portal showed (2026-11-19) beyond the
+sources below:
 
-No fee is mentioned anywhere on the portal, in the guide or in the terms.
-Kaiser "recommend[s] that your application includes a clear privacy policy"
-(CMS-9115-F).
-
-### KP Developer Portal Terms and Conditions (dated 20/4/2026)
-
-- A contract with Kaiser Foundation Hospitals; California law; exclusive
-  jurisdiction in Alameda County courts.
-- Limited, non-exclusive, royalty-free licence to use the KP APIs "as
-  described in their applicable implementation guides".
-- Prohibits reverse engineering the APIs, exceeding rate limits, and
-  "security research on or testing against KP APIs" without written approval;
-  security flaws found in normal use must be reported to the Kaiser National
-  Compliance Hotline and not disclosed publicly.
-- Credentials (passwords, keys, tokens, user ids) must stay confidential and
-  not go to any third party.
-- KFH may monitor use, may suspend or revoke credentials without notice, and
-  may terminate "for any or no reason".
-- The developer indemnifies Kaiser for claims arising from use of the APIs or
-  of information obtained through them; Kaiser disclaims all warranties and
-  liability.
+- The sign-up (Azure AD B2C) asks for a "valid company email address" and
+  took a personal one; its password must be 8 to 16 characters.
+- The sandbox's redirect URI and "Generate ID/Secret" work as soon as the
+  API is requested, before any approval, and the `http` loopback redirect
+  `http://127.0.0.1:7469/callback` was accepted there.
+- The production redirect URI stays read-only until Kaiser approves the
+  request by email. Kaiser publishes no time frame for that review and no
+  rules for loopback redirects in production. Should it take only `https`,
+  as Epic does in production, pk-med-smart v0.5.0 can send a registered
+  `https` page that forwards to the loopback (`SmartApp::redirect_uri`);
+  kp would need that page hosted and a setting naming it.
+- Each client secret is shown once.
+- Nothing on the portal, in the guide or in the terms mentions a fee.
+  Kaiser "recommend[s] that your application includes a clear privacy
+  policy" (CMS-9115-F).
 
 ## Sources (read 2026-11-12 unless dated)
 

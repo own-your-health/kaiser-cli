@@ -56,6 +56,10 @@ pub enum Command {
     /// Non-secret settings: the redirect port, a test server's FHIR base.
     #[command(subcommand)]
     Config(ConfigCmd),
+    /// What to enter in Kaiser's developer portal to register an app for
+    /// kp, and how to store the client id and secret it issues
+    /// (registration/v1; docs/registration.md walks through it).
+    Registration,
     /// Update to the latest release from GitHub.
     SelfUpdate(SelfUpdateArgs),
     /// Print a shell completion script.
@@ -74,6 +78,7 @@ impl Command {
             Command::Orgs(_)
             | Command::Profiles(_)
             | Command::Config(_)
+            | Command::Registration
             | Command::SelfUpdate(_)
             | Command::Completions { .. }
             | Command::Info => false,
@@ -119,10 +124,10 @@ pub enum ProfilesCmd {
 #[derive(Subcommand, Debug)]
 pub enum AuthCmd {
     /// Store the client id and secret Kaiser's developer portal issued for
-    /// this household's app, in kp's vault (shared by every profile). On a terminal kp asks for each
-    /// without echoing it; with --stdin or --from-env it reads
-    /// `<id>:<secret>`, or the id and the secret on two lines. Never on the
-    /// command line.
+    /// your app (`kp registration`, docs/registration.md), in kp's vault,
+    /// shared by every profile. On a terminal kp asks for each without
+    /// echoing it; with --stdin or --from-env it reads `<id>:<secret>`, or
+    /// the id and the secret on two lines. Never on the command line.
     SetCredential(SetCredentialArgs),
     /// Sign in as a member in Chrome, in the profile's own browser profile
     /// (Kaiser's sign-in and consent pages, PKCE, a redirect to this

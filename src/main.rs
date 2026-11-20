@@ -36,6 +36,7 @@ fn run(cli: &Cli) -> Result<(), CliError> {
         Command::Records(cmd) => commands::records::run(&ctx, cmd),
         Command::Api(args) => commands::api::run(&ctx, args),
         Command::Config(cmd) => commands::config::run(&ctx, cmd),
+        Command::Registration => commands::registration::run(&ctx),
         Command::SelfUpdate(args) => Updater {
             repo: REPO.into(),
             binary: BIN.into(),
@@ -56,18 +57,33 @@ fn run(cli: &Cli) -> Result<(), CliError> {
                     required: true,
                     method: "browser-session".into(),
                     login_hint: Some(format!(
-                        "{BIN} auth set-credential, {BIN} profiles add <NAME>, then {BIN} auth login --profile <NAME> --label <WHO>"
+                        "{BIN} registration (an app at developer.kp.org), {BIN} auth set-credential, {BIN} profiles add <NAME>, then {BIN} auth login --profile <NAME> --label <WHO>"
                     )),
                 },
                 &[
-                    "orgs", "profiles", "auth", "patients", "records", "api", "config",
+                    "orgs",
+                    "profiles",
+                    "auth",
+                    "patients",
+                    "records",
+                    "api",
+                    "config",
+                    "registration",
                 ],
             )
             .with_profiles(PROFILES);
             // Login commands take --profile, so a records store passes one.
             info.capabilities
                 .push(pk_med_records::LOGIN_PROFILES.to_string());
-            output::json(&serde_json::to_value(&info).expect("CliInfo serializes to JSON"));
+            let mut v = serde_json::to_value(&info).expect("CliInfo serializes to JSON");
+            // Whether each environment's client is stored, from the vault's
+            // files: no Keychain read, so a newly installed kp asks nothing.
+            v["auth"]["clients"] = commands::registration::client_rows(&ctx.vault).into();
+            v["auth"]["registration"] = serde_json::json!({
+                "guide": commands::registration::guide(),
+                "command": format!("{BIN} registration"),
+            });
+            output::json(&v);
             Ok(())
         }
     }

@@ -319,7 +319,10 @@ pub fn status_of(ctx: &Ctx) -> Result<(AuthStatus, Value), CliError> {
         // logged-out status raises no prompt.
         let mut row = json!({ "environment": environment.as_str(), "stored": false });
         match credentials::read_client(&ctx.vault, environment) {
-            Ok(found) => row["stored"] = found.is_some().into(),
+            Ok(Some(_)) => row["stored"] = true.into(),
+            Ok(None) => {
+                row["remedy"] = super::registration::missing_client_remedy(environment).into()
+            }
             Err(e) => row["error"] = e.message().into(),
         }
         any_client |= row["stored"] == true;
@@ -399,7 +402,7 @@ fn status(ctx: &Ctx) -> Result<(), CliError> {
                 } else if let Some(e) = c["error"].as_str() {
                     format!("unreadable ({e})")
                 } else {
-                    "not stored (`kp auth set-credential`)".to_string()
+                    format!("not stored: {}", c["remedy"].as_str().unwrap_or_default())
                 }
             );
         }

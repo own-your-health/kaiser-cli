@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.3.0 — 2026-11-20
+
+- `kp registration` prints what to enter at developer.kp.org, form by
+  form in the portal's own labels: the persona, the application's name,
+  website and description, the API to request, and the redirect URI on
+  the configured port. Then the scopes and client type kp uses and the
+  command that stores each environment's client. `--json` gives
+  `registration/v1`. It reads no secret.
+- docs/registration.md walks through the portal step by step for someone
+  registering for the first time. It covers the sign-up and its 8 to 16
+  character password, the phone code, the Developer persona, the
+  application, the API request and Kaiser's guide, the sandbox client
+  right away, and the production client after approval. It also covers
+  what kp uses, how to end access and the terms' main points. The
+  README's setup steps moved there, and the README has a quick start from
+  registration to `medrec import`, what needs a person, and how long a
+  sign-in lasts.
+- `info` says whether each environment's client is stored
+  (`auth.clients`) and where registration is explained
+  (`auth.registration`). It reads the vault's file names, never the
+  Keychain, so a newly installed kp still asks nothing.
+- A missing client (exit 3) and `auth status`'s client rows name the
+  guide, `kp registration` and the right `kp auth set-credential` command.
+  `auth status` said `kp auth set-credential` for the sandbox too, which
+  needs `--sandbox`.
+
 ## v0.2.3 — 2026-11-19
 
 - `records export -o` for a real member: the refusal no longer names an

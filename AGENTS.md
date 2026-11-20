@@ -16,16 +16,17 @@ kp's (`docs/api.md`, Route).
 |---|---|
 | `src/main.rs` | parsing, dispatch, `info`, exit codes |
 | `src/cli.rs` | the clap tree |
-| `src/commands/*.rs` | one module per command group (`profiles.rs`: `list`, `add`, `remove`, `migrate`); `Ctx` in `mod.rs`: the config and its owner-only writes, the `--profile` resolution, the vault and the v0.1.x Keychain, the refresh lock, the sign-in window and `forget_browser` |
+| `src/commands/*.rs` | one module per command group (`profiles.rs`: `list`, `add`, `remove`, `migrate`; `registration.rs`: the portal's values, the missing-client remedy, each client's `stored` for `info`); `Ctx` in `mod.rs`: the config and its owner-only writes, the `--profile` resolution, the vault and the v0.1.x Keychain, the refresh lock, the sign-in window and `forget_browser` |
 | `src/kaiser.rs` | the two organizations (the health plan and its sandbox): FHIR base, regions, scopes, `--org` resolution and search, `KaiserQuirks` |
 | `src/session.rs` | a signed-in member (`Context`, a profile's grant), picking one, the live token with renewal over the profile's sessions in the vault (`ProfileSessions`, `Live`) |
 | `src/export.rs` | what `records export` pulls, in order, and which failures skip rather than stop |
 | `src/config.rs` | the config: redirect port, FHIR base override, the profiles and each one's grants (`ProfileSettings`) |
-| `src/credentials.rs` | the app's client id and secret: the vault entries `_client/<environment>`, and v0.1.x's account names |
+| `src/credentials.rs` | the app's client id and secret: the vault entries `_client/<environment>`, whether one is on disk (`client_on_disk`, no Keychain), and v0.1.x's account names |
 | `src/state.rs` | kp v0.1.x's `state.json`, the list of its Keychain items, which `profiles migrate` and `auth logout --forget` read and remove |
 | `src/fsutil.rs` | owner-only files written whole |
 | `examples/mock_kaiser.rs` | `make mock`: medical-common's mock SMART + FHIR server, for dogfooding |
 | `docs/api.md` | Kaiser's API, quoted, with sources and traps; read before changing auth or export |
+| `docs/registration.md` | developer.kp.org step by step, for someone registering an app for the first time; `kp registration` prints its values, so change the two together |
 
 ## Medical data
 
@@ -63,7 +64,14 @@ Medical records are the most sensitive data a household has.
   secret are the vault entries `_client/production` and `_client/sandbox`
   (a leading `_` is no profile's), stored by `kp auth set-credential` from a
   prompt that does not echo, `--stdin` or `--from-env`. Kaiser's terms keep
-  both confidential: never printed, logged, or put in argv.
+  both confidential: never printed, logged, or put in argv. Each household
+  registers its own app (`docs/registration.md`); no client id ships with
+  kp, and none belongs in the repository.
+- `info` and `registration` say whether each client is stored from the
+  vault's file names alone (`credentials::client_on_disk`), so they never
+  read the Keychain; `auth status` reads the entries. A missing client is
+  exit 3 naming the guide, `kp registration` and the `set-credential`
+  command (`registration::missing_client_remedy`).
 - A member's sign-in is pk-med-smart's session, the vault entry
   `<profile>/<org>/<FHIR patient id>` (`ProfileSessions`). Errors never name
   it, since it holds the member's id. Renewal runs under the family's
@@ -111,9 +119,11 @@ Medical records are the most sensitive data a household has.
 `make verify` (fmt, clippy, tests, smoke), offline:
 
 - `tests/cli_surface.rs`: the binary's help, exit codes, JSON errors,
-  `info` (with `login-profiles`), completions, `orgs`, `config`,
+  `info` (with `login-profiles`, each client's `stored`, the registration
+  guide), `registration` (its values on the configured port), completions,
+  `orgs`, `config`,
   `profiles`, a login command refused without a configured `--profile`,
-  logged-out `auth status`.
+  logged-out `auth status` (each client's remedy).
 - `tests/e2e.rs`: in process against medical-common's mock server on
   127.0.0.1, with a stand-in browser and a vault over `MemoryKeys`, as
   profile `adult1`: sign-in (discovery
