@@ -276,7 +276,11 @@ mod tests {
         for environment in [Environment::Production, Environment::Sandbox] {
             let err = require_server(environment, &base).unwrap_err();
             assert_eq!(err.exit_code(), 2);
-            assert!(err.message().starts_with("null is"), "{}", &err.message()[..40]);
+            assert!(
+                err.message().starts_with("null is"),
+                "{}",
+                &err.message()[..40]
+            );
         }
     }
 
