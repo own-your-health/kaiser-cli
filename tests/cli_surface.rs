@@ -118,7 +118,7 @@ fn info_is_cli_info() {
         .as_array()
         .unwrap()
         .contains(&json!("login-profiles")));
-    assert!(v.to_string().contains("piekstra/kaiser-cli"));
+    assert!(v.to_string().contains("own-your-health/kaiser-cli"));
     // Whether a client is stored, read from the vault's files: nothing is.
     assert_eq!(
         v["clients"],
@@ -144,7 +144,7 @@ fn registration_prints_the_portals_values_on_the_configured_port() {
     assert_eq!(v["portal"], "https://developer.kp.org");
     assert_eq!(
         v["doc"],
-        "https://github.com/piekstra/kaiser-cli/blob/main/docs/registration.md"
+        "https://github.com/own-your-health/kaiser-cli/blob/main/docs/registration.md"
     );
     assert_eq!(v["launch"], "standalone-patient");
     assert_eq!(v["client_type"], "confidential-symmetric");
@@ -157,7 +157,7 @@ fn registration_prints_the_portals_values_on_the_configured_port() {
     assert!(!v["scopes"].as_array().unwrap().contains(&json!("sandbox")));
     assert_eq!(
         v["urls"],
-        json!([{"label": "Application Website", "value": "https://github.com/piekstra/kaiser-cli"}])
+        json!([{"label": "Application Website", "value": "https://github.com/own-your-health/kaiser-cli"}])
     );
     let labels = |v: &Value| -> Vec<String> {
         v["fields"]
@@ -345,7 +345,7 @@ fn nothing_stored_reads_as_such_without_the_keychain() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "client (sandbox): none configured; see https://github.com/piekstra/kaiser-cli/blob/main/docs/registration.md and `kp registration --sandbox`",
+            "client (sandbox): none configured; see https://github.com/own-your-health/kaiser-cli/blob/main/docs/registration.md and `kp registration --sandbox`",
         ));
     let v = stdout_json(kp(&home).args(["auth", "logout", "--profile", "adult1", "--json"]));
     assert_eq!(

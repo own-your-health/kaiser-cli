@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.3.2 — 2026-11-22
+
+- kp's repository is now `own-your-health/kaiser-cli`, and medical-common,
+  medrec-cli and mychart-cli are under `own-your-health` too. kp's
+  `self-update`, `info`'s repository, the guide's URL in `kp registration`
+  and in the missing-client remedy, and the registration's Application
+  Website name the new owner. The medical-common crates come from
+  `own-your-health/medical-common` at the same v0.6.9 tag. GitHub redirects
+  the old addresses, so v0.3.1 and earlier still update themselves.
+- Nothing else changes: the Keychain item (`vault-key` in `piekstra.kp`),
+  the vault, the config, the redirect URI and the commands are as they were.
+  An app registered with the old Application Website needs no change.
+
 ## v0.3.1 — 2026-11-20
 
 - On medical-common v0.6.9 and cli-common v0.33.4, every `pk-cli-*` with

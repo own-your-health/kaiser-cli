@@ -32,7 +32,7 @@ use crate::session::{Context, Live};
 use crate::state::StateFile;
 
 pub const BIN: &str = "kp";
-pub const REPO: &str = "piekstra/kaiser-cli";
+pub const REPO: &str = "own-your-health/kaiser-cli";
 
 /// Names the keychain service a run uses instead of `piekstra.kp`. For the
 /// test suite and for dogfooding: a service that holds nothing reads as

@@ -306,7 +306,7 @@ the member signs in with the code Kaiser sends, picks the longest sharing
 period and approves ([Sign-in goes through kp.org](#sign-in-goes-through-kporg)).
 Then one read, whose
 output is statuses and counts only. The commands are
-[`mychart`](https://github.com/piekstra/mychart-cli)'s (v0.5.0 or later:
+[`mychart`](https://github.com/own-your-health/mychart-cli)'s (v0.5.0 or later:
 every one takes `--profile`; `patients list` prints `patient-list/v1`,
 `api GET` one FHIR read as the signed-in patient, and a refused read exits
 3), not `kp`'s. The read

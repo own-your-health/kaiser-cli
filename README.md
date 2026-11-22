@@ -12,12 +12,12 @@ It is for any Kaiser Permanente member with a kp.org account, in any
 region, who wants their own claims and coverage on their own computer, and
 those of the family members they act for on kp.org. Clinical records
 (visits, results, notes) at Kaiser come through Epic: use
-[`mychart`](https://github.com/piekstra/mychart-cli) for those.
+[`mychart`](https://github.com/own-your-health/mychart-cli) for those.
 [docs/api.md](docs/api.md) explains the split.
 
 ## Status
 
-v0.3.0: tested against medical-common's mock server and run against
+v0.3.2: tested against medical-common's mock server and run against
 Kaiser's sandbox (synthetic members, a proxy among them;
 [docs/api.md](docs/api.md#kaisers-sandbox)). Production access needs
 Kaiser's approval of your app, and has not been run yet.
@@ -30,7 +30,7 @@ the archive against its `.sha256`, then put `kp` on your PATH:
 
 ```sh
 t=aarch64-apple-darwin
-u=https://github.com/piekstra/kaiser-cli/releases/latest/download/kp-$t.tar.gz
+u=https://github.com/own-your-health/kaiser-cli/releases/latest/download/kp-$t.tar.gz
 curl -sSLO "$u" && curl -sSLO "$u.sha256"
 shasum -a 256 -c "kp-$t.tar.gz.sha256"    # on Linux: sha256sum -c
 tar xzf "kp-$t.tar.gz" && mkdir -p ~/.local/bin && mv kp ~/.local/bin/
@@ -75,7 +75,7 @@ From source: `make install`.
    medrec --profile <FOLDER> import --from kp --from-profile adult1 --patient adult1 --person <WHO>
    ```
 
-   [medrec](https://github.com/piekstra/medrec-cli) v0.2.2 or later runs
+   [medrec](https://github.com/own-your-health/medrec-cli) v0.2.2 or later runs
    `kp records export` itself. Its own `--profile` names the records folder,
    and `--from-profile` names kp's profile. Later imports leave out
    `--person`: medrec remembers whose they are.
