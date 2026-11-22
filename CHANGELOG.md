@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- url 2.5.9 (RUSTSEC-2026-0592). kp names a refused server by its origin,
+  and on url 2.5.8 an address nested in many `blob:` prefixes overflowed
+  the stack there: kp aborted instead of exiting 2. Such an address could
+  come only from `kp config set fhir_base` or from the sign-in endpoints in
+  the discovery document of a server kp already allows (Kaiser's, or one on
+  this machine for the sandbox). A test pins the refusal.
+
 ## v0.3.2 — 2026-11-22
 
 - kp's repository is now `own-your-health/kaiser-cli`, and medical-common,
