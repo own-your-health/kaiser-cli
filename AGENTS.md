@@ -5,7 +5,7 @@
 It conforms to piekstra-cli/1 and medical-common's `health-records/v1`
 profile, on the `pk-cli-*` crates from
 [cli-common](https://github.com/piekstra/cli-common) and the `pk-med-*`
-crates from [medical-common](https://github.com/piekstra/medical-common).
+crates from [medical-common](https://github.com/own-your-health/medical-common).
 
 Clinical records at Kaiser come through Epic, so they are `mychart`'s, not
 kp's (`docs/api.md`, Route).

@@ -4,7 +4,7 @@
 
 Report it privately through GitHub's private vulnerability reporting
 (Security, Report a vulnerability) on
-https://github.com/piekstra/kaiser-cli. Do not open a public issue, and do
+https://github.com/own-your-health/kaiser-cli. Do not open a public issue, and do
 not include a real record, member number, token or secret in the report.
 
 ## A flaw in Kaiser's API

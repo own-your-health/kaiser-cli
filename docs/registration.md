@@ -78,7 +78,7 @@ Choose **Add Application**. The dialog "Create New Application":
 | Field | What to enter |
 |---|---|
 | Application Name (Public) | A name the members you sign in will recognise, for example `Family Health Records (kp)`. Kaiser shows it to members on kp.org's list of apps with access and asks for no names like "test" or "validation". It cannot be edited after saving. |
-| Application Website | `https://github.com/piekstra/kaiser-cli`, or your own copy. |
+| Application Website | `https://github.com/own-your-health/kaiser-cli`, or your own copy. |
 | Application Description | `A command-line tool that a Kaiser Permanente member runs on their own computer to download their own health-plan claims and coverage, and those of the family members they act for on kp.org, into their own files. It sends the records to no one else.` Members see it too. It cannot be edited after saving. |
 | Persona or Type | **Developer** |
 
@@ -109,7 +109,7 @@ website opens.
 
 Leave "KP Interoperability Clinical Data" alone: it sends you to Epic's
 portal. Kaiser's clinical records come through
-[`mychart`](https://github.com/piekstra/mychart-cli) ([api.md](api.md),
+[`mychart`](https://github.com/own-your-health/mychart-cli) ([api.md](api.md),
 Route).
 
 ## 5. The sandbox client, right away
