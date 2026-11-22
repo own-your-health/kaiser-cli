@@ -269,6 +269,18 @@ mod tests {
     }
 
     #[test]
+    fn a_nested_blob_address_is_refused_without_overflowing() {
+        // RUSTSEC-2026-0592: url before 2.5.9 recursed once per `blob:` in
+        // `Url::origin()`, which the refusal calls to name the address.
+        let base = format!("{}https://other.example/fhir", "blob:".repeat(100_000));
+        for environment in [Environment::Production, Environment::Sandbox] {
+            let err = require_server(environment, &base).unwrap_err();
+            assert_eq!(err.exit_code(), 2);
+            assert!(err.message().starts_with("null is"), "{}", &err.message()[..40]);
+        }
+    }
+
+    #[test]
     fn scopes_per_environment() {
         assert_eq!(
             Environment::Production.scope(),
