@@ -279,7 +279,7 @@ mod tests {
             assert!(
                 err.message().starts_with("null is"),
                 "{}",
-                &err.message()[..40]
+                err.message().chars().take(40).collect::<String>()
             );
         }
     }
