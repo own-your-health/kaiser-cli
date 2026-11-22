@@ -12,6 +12,10 @@
 - Nothing else changes: the Keychain item (`vault-key` in `piekstra.kp`),
   the vault, the config, the redirect URI and the commands are as they were.
   An app registered with the old Application Website needs no change.
+- CI's `security` job runs the gitleaks CLI (8.30.1, its checksum pinned)
+  over the whole history, in place of gitleaks-action, which needs a paid
+  license on an organization's repository. The job needs only the
+  workflow's `contents: read`.
 
 ## v0.3.1 — 2026-11-20
 
