@@ -159,4 +159,6 @@ make install    # cargo install --locked, then signs the binary (macOS)
 make verify     # what CI runs
 ```
 
-Licensed under MIT or Apache-2.0.
+## License
+
+Copyright (C) 2026 Caleb Piekstra. Licensed under the GNU Affero General Public License, version 3 only (AGPL-3.0-only); see LICENSE. Releases up to and including v0.3.2 were published under MIT OR Apache-2.0.
